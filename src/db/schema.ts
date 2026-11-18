@@ -11,6 +11,7 @@ export const npcCollections = pgTable("fable_collections", {
   name: text("name").notNull(),
   color: text("color").notNull().default("#a6b48c"),
   parentId: text("parent_id"),
+  kind: text("kind").notNull().default("region"),
 });
 export const workspaceSettings = pgTable("fable_settings", {
   key: text("key").primaryKey(),

@@ -1,21 +1,32 @@
 import { db } from "@/db";
 import { npcCharacters, npcCollections, workspaceSettings } from "@/db/schema";
-import { defaultCharacters, defaultCollections, normalizeCharacter } from "@/lib/characters";
+import { defaultCharacters, defaultCollections, LocationKind, normalizeCharacter } from "@/lib/characters";
 import { eq, asc } from "drizzle-orm";
 
 let seedPromise: Promise<void> | null = null;
 export async function ensureWorkspace() {
   if (!seedPromise) seedPromise = (async () => {
     await db.transaction(async tx => {
-      const [stateV2] = await tx.select().from(workspaceSettings).where(eq(workspaceSettings.key, "initialized_v2"));
-      if (stateV2) return;
+      const [stateV3] = await tx.select().from(workspaceSettings).where(eq(workspaceSettings.key, "initialized_v3"));
+      if (stateV3) return;
       for (const col of defaultCollections) {
         await tx
           .insert(npcCollections)
-          .values({ id: col.id, name: col.name, color: col.color, parentId: col.parentId ?? null })
+          .values({
+            id: col.id,
+            name: col.name,
+            color: col.color,
+            parentId: col.parentId ?? null,
+            kind: col.kind ?? "region",
+          })
           .onConflictDoUpdate({
             target: npcCollections.id,
-            set: { name: col.name, color: col.color, parentId: col.parentId ?? null },
+            set: {
+              name: col.name,
+              color: col.color,
+              parentId: col.parentId ?? null,
+              kind: col.kind ?? "region",
+            },
           });
       }
       const existingRows = await tx.select().from(npcCharacters);
@@ -43,9 +54,17 @@ export async function ensureWorkspace() {
               spellcasting: prev.spellcasting || starter.spellcasting,
               bonusActions: prev.bonusActions || starter.bonusActions,
               ancestryTraits: prev.ancestryTraits || starter.ancestryTraits,
+              templateFeatures: prev.templateFeatures || starter.templateFeatures,
+              classFeatures: prev.classFeatures || starter.classFeatures,
+              limitedResources: prev.limitedResources || starter.limitedResources,
+              combatTactics: prev.combatTactics || starter.combatTactics,
+              questOffer: prev.questOffer || starter.questOffer,
+              legendStars: typeof prev.legendStars === "number" && prev.legendStars > 0 ? prev.legendStars : starter.legendStars,
+              legendDistinction: prev.legendDistinction || starter.legendDistinction,
               movement: prev.movement || starter.movement,
               resistances: prev.resistances || starter.resistances,
               threatResponse: prev.threatResponse || starter.threatResponse,
+              faith: prev.faith && prev.faith !== "No strong affiliation" ? prev.faith : starter.faith,
               notes: prev.notes?.length ? prev.notes : starter.notes,
             })
           : starter;
@@ -65,6 +84,7 @@ export async function ensureWorkspace() {
       }
       await tx.insert(workspaceSettings).values({ key: "initialized", value: "1" }).onConflictDoNothing();
       await tx.insert(workspaceSettings).values({ key: "initialized_v2", value: "1" }).onConflictDoNothing();
+      await tx.insert(workspaceSettings).values({ key: "initialized_v3", value: "1" }).onConflictDoNothing();
     });
   })().catch(error => { seedPromise = null; throw error; });
   await seedPromise;
@@ -85,6 +105,12 @@ export async function getWorkspace() {
   });
   return {
     characters: sortedRows.map(row => normalizeCharacter(row.profile)),
-    collections: collections.map(c => ({ id: c.id, name: c.name, color: c.color, parentId: c.parentId ?? null })),
+    collections: collections.map(c => ({
+      id: c.id,
+      name: c.name,
+      color: c.color,
+      parentId: c.parentId ?? null,
+      kind: (["region", "city", "sublocation"].includes(c.kind) ? c.kind : c.parentId ? "sublocation" : "region") as LocationKind,
+    })),
   };
 }

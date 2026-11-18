@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowDownToLine, ArrowRight, BookOpen, Check, ChevronDown, Coins, Copy, Ellipsis, Eye, Feather, Heart, Languages, Loader2, LockKeyhole, MapPin, Maximize2, MessageCircle, Minus, Pencil, Plus, Printer, ScrollText, Shield, Sparkles, Star, Swords, Target, Trash2, WandSparkles, Wind, X } from "lucide-react";
-import { Character, CharacterNote, abilityNames, getProfileSections, modifier, signed } from "@/lib/characters";
+import { ArrowDownToLine, ArrowRight, Bookmark, BookOpen, Check, ChevronDown, Coins, Compass, Copy, Ellipsis, Eye, Feather, Heart, Languages, Loader2, LockKeyhole, MapPin, Maximize2, MessageCircle, Minus, Pencil, Plus, Printer, ScrollText, Shield, Sparkles, Sun, Swords, Target, Trash2, WandSparkles, Wind, X } from "lucide-react";
+import { Character, CharacterNote, abilityNames, formatLegendBadge, getProfileSections, modifier, signed } from "@/lib/characters";
+import { lookupSkill, lookupSpell } from "@/lib/compendium";
 
 export type SheetTab = "session" | "profile" | "notes";
 type Props = {
@@ -17,9 +18,48 @@ export default function CharacterSheet({
   onDuplicate, onDelete, onFocus, focused, saving, inCombat, onToggleCombat, onOpenCombatMode,
 }: Props) {
   const [menu, setMenu] = useState(false);
+  const [inspectedRef, setInspectedRef] = useState<{ kind: "spell" | "skill"; title: string; subtitle: string; body: string } | null>(null);
+
+  const legend = formatLegendBadge(c.legendStars);
   const additionalList = c.additionalActions
-    ? c.additionalActions.split(/\s*;\s*|\s*·\s*/).map(s => s.trim()).filter(Boolean)
+    ? c.additionalActions.split(/\s*;\s*|\s*·\s*/).map(s => s.replace(/^Cast\s+/i, "").trim()).filter(Boolean)
     : [];
+  const spellMatch = c.spellcasting.match(/spells:\s*([^.)]+)/i);
+  const spellList = spellMatch
+    ? spellMatch[1].split(/\s*,\s*|\s*;\s*/).map(s => s.replace(/^Cast\s+/i, "").trim()).filter(Boolean)
+    : [];
+  const combinedSpells = Array.from(new Set([...additionalList, ...spellList]));
+  const skillTokens = c.skills ? c.skills.split(/\s*,\s*/).filter(Boolean) : [];
+  const hasDeity = Boolean(c.faith && c.faith.trim() && !/^no strong affiliation$/i.test(c.faith.trim()));
+
+  function inspectSpellChip(rawSpell: string) {
+    const info = lookupSpell(rawSpell);
+    const levelLabel = info.level === 0 ? "Cantrip" : `${info.level}${info.level === 1 ? "st" : info.level === 2 ? "nd" : info.level === 3 ? "rd" : "th"}-level`;
+    setInspectedRef(prev =>
+      prev?.title === info.name
+        ? null
+        : {
+            kind: "spell",
+            title: info.name,
+            subtitle: `${levelLabel} ${info.school} · ${info.castingTime} · Range ${info.range} · ${info.duration}`,
+            body: info.summary,
+          }
+    );
+  }
+
+  function inspectSkillChip(rawSkill: string) {
+    const info = lookupSkill(rawSkill);
+    setInspectedRef(prev =>
+      prev?.title === `${info.name} (${info.bonus})`
+        ? null
+        : {
+            kind: "skill",
+            title: `${info.name} (${info.bonus})`,
+            subtitle: `${info.ability} ability check · Proficiency included`,
+            body: info.summary,
+          }
+    );
+  }
 
   return (
     <article className="character-sheet" aria-label={`${c.name} character sheet`}>
@@ -32,12 +72,25 @@ export default function CharacterSheet({
           </div>
         ) : null}
         <div className="character-heading">
-          <div className="sheet-eyebrow"><span className="tiny-dot" />{collectionName || "UNINDEXED"}</div>
+          <div className="sheet-eyebrow">
+            <span className="tiny-dot" />
+            <span>{collectionName || "UNINDEXED"}</span>
+            {legend && (
+              <span
+                className={`legend-badge ${legend.isLegend ? "is-full-legend" : "is-partial-legend"}`}
+                title={c.legendDistinction || `${c.legendStars}/5 distinction stars`}
+              >
+                <span className="legend-stars" aria-hidden="true">{legend.starsText}</span>
+                {legend.isLegend && <strong>Legend</strong>}
+              </span>
+            )}
+          </div>
           <h2>{c.name}</h2>
           <p className="character-meta">{c.ancestry}<span>·</span>{c.age} years<span>·</span>{c.pronouns}{c.combatClass && c.combatClass !== "Ordinary civilian" ? <><span>·</span><strong className="meta-class">{c.combatClass}</strong></> : null}</p>
           <div className="character-tags">
             <span>{c.occupation}</span>
             <span><MapPin size={11} />{c.location}</span>
+            {hasDeity && <span className="deity-tag" title="Primary deity / faith"><Sun size={11} />{c.faith}</span>}
             {c.distinguishingFeature && <span>{c.distinguishingFeature}</span>}
           </div>
         </div>
@@ -53,7 +106,7 @@ export default function CharacterSheet({
                 {inCombat ? "In combat" : "Fight"}
               </button>
             )}
-            <button className={`icon-button favorite-button ${c.favorite ? "is-favorite" : ""}`} onClick={() => void onUpdate({ favorite: !c.favorite })} title={c.favorite ? "Remove from favorites" : "Add to favorites"} aria-label={c.favorite ? "Remove from favorites" : "Add to favorites"}><Star size={18} fill={c.favorite ? "currentColor" : "none"} /></button>
+            <button className={`icon-button favorite-button ${c.favorite ? "is-favorite" : ""}`} onClick={() => void onUpdate({ favorite: !c.favorite })} title={c.favorite ? "Remove from favorites" : "Add to favorites"} aria-label={c.favorite ? "Remove from favorites" : "Add to favorites"}><Bookmark size={17} fill={c.favorite ? "currentColor" : "none"} /></button>
             <div className="menu-anchor">
               <button className={`icon-button ${menu ? "pressed" : ""}`} aria-label="Character actions" onClick={() => setMenu(!menu)} aria-expanded={menu}><Ellipsis size={20} /></button>
               {menu && <><button className="menu-dismiss" aria-label="Close character actions" onClick={() => setMenu(false)} /><div className="dropdown-menu character-menu">
@@ -86,42 +139,113 @@ export default function CharacterSheet({
         </div>
         <div className="session-content" role="tabpanel">
           <div className="session-column">
-            <section className="sheet-section"><h3><Feather size={14} />Roleplay cues</h3><div className="trait-tags">{c.traits.map(trait => <span key={trait}>{trait}</span>)}</div><dl className="reference-list"><div><dt>First impression</dt><dd>{c.impression}</dd></div><div><dt>Voice</dt><dd className="voice-cue">“{c.voice}.”</dd></div><div><dt>A little tell</dt><dd>{c.habit}</dd></div></dl></section>
-            <section className="sheet-section wants-section"><h3><Target size={14} />Wants & worries</h3><div className="goal-callout"><span>RIGHT NOW, THEY WANT TO</span><p>{c.goal}</p></div><dl className="reference-list"><div><dt>Needs</dt><dd>{c.need}</dd></div><div><dt>Flaw</dt><dd>{c.flaw}</dd></div><div><dt>Under pressure</dt><dd>{c.stress}</dd></div>{c.threatResponse && <div><dt>In a fight</dt><dd>{c.threatResponse}</dd></div>}</dl></section>
+            <section className="sheet-section">
+              <h3><Feather size={14} />Roleplay cues</h3>
+              <div className="trait-tags">{c.traits.map(trait => <span key={trait}>{trait}</span>)}</div>
+              <dl className="reference-list">
+                <div><dt>First impression</dt><dd>{c.impression}</dd></div>
+                <div><dt>Voice</dt><dd className="voice-cue">“{c.voice}.”</dd></div>
+                <div><dt>A little tell</dt><dd>{c.habit}</dd></div>
+                <div><dt>Primary god</dt><dd className="deity-dd">{c.faith || "No strong affiliation"}</dd></div>
+              </dl>
+            </section>
+            <section className="sheet-section wants-section">
+              <h3><Target size={14} />Wants & worries</h3>
+              <div className="goal-callout"><span>RIGHT NOW, THEY WANT TO</span><p>{c.goal}</p></div>
+              <dl className="reference-list">
+                <div><dt>Needs</dt><dd>{c.need}</dd></div>
+                <div><dt>Flaw</dt><dd>{c.flaw}</dd></div>
+                <div><dt>Under pressure</dt><dd>{c.stress}</dd></div>
+                {c.threatResponse && <div><dt>In a fight</dt><dd>{c.threatResponse}</dd></div>}
+                {c.questOffer && <div><dt>Quest hook</dt><dd>{c.questOffer}</dd></div>}
+              </dl>
+            </section>
           </div>
           <div className="session-column right-session-column">
             <section className="sheet-section">
               <h3><Swords size={14} />Combat & abilities</h3>
               <div className="ability-scores">{abilityNames.map(a => <div key={a}><span>{a}</span><strong>{c.abilities[a]}</strong><small>{signed(modifier(c.abilities[a]))}</small></div>)}</div>
               <div className="attack-line"><Swords size={13} /><p><strong>{c.attack.split("·")[0].trim()}</strong><span>{c.attack.split("·").slice(1).join(" · ").trim()}</span></p></div>
-              {c.sidearm && (
+              {c.sidearm && c.sidearm.split("·")[0].trim().toLowerCase() !== c.attack.split("·")[0].trim().toLowerCase() && (
                 <div className="attack-line sidearm-line"><Swords size={12} /><p><strong>{c.sidearm.split("·")[0].trim()} <small>(sidearm)</small></strong><span>{c.sidearm.split("·").slice(1).join(" · ").trim()}</span></p></div>
               )}
               {c.spellcasting && (
                 <div className="spellcasting-line">
                   <WandSparkles size={13} />
                   <p>
-                    <strong>Spellcasting:</strong> {c.spellcasting}
+                    <strong>Spellcasting:</strong> {c.spellcasting.split("—")[0].trim()}
                   </p>
                 </div>
               )}
-              {additionalList.length > 0 && (
+              {combinedSpells.length > 0 && (
                 <div className="additional-actions-chips">
-                  {additionalList.slice(0, 6).map(act => <span key={act}>{act.replace(/^Cast\s+/i, "")}</span>)}
-                  {additionalList.length > 6 && <span className="more-chip">+{additionalList.length - 6} more</span>}
+                  {combinedSpells.slice(0, 7).map(act => (
+                    <button
+                      type="button"
+                      key={act}
+                      className={`interactive-ref-chip ${inspectedRef?.title.toLowerCase() === act.replace(/\s*\([^)]*\)/g, "").toLowerCase() ? "is-selected" : ""}`}
+                      onClick={() => inspectSpellChip(act)}
+                      title="Click to see what this spell does"
+                    >
+                      {act}
+                    </button>
+                  ))}
+                  {combinedSpells.length > 7 && onOpenCombatMode && (
+                    <button type="button" className="interactive-ref-chip more-chip" onClick={onOpenCombatMode}>
+                      +{combinedSpells.length - 7} more in Combat sheet
+                    </button>
+                  )}
                 </div>
               )}
               <div className="skills-line">
-                <span>Skills</span><p>{c.skills || "No trained skills"}{c.savingThrows && c.savingThrows !== "No save proficiencies" ? ` · Saves: ${c.savingThrows}` : ""}</p>
+                <span>Skills</span>
+                <div className="skill-chips-inline">
+                  {skillTokens.length > 0 ? skillTokens.map(sk => (
+                    <button
+                      type="button"
+                      key={sk}
+                      className="skill-inline-btn"
+                      onClick={() => inspectSkillChip(sk)}
+                      title="Click to see what this skill covers"
+                    >
+                      {sk}
+                    </button>
+                  )) : <span>No trained skills</span>}
+                  {c.savingThrows && c.savingThrows !== "No save proficiencies" && (
+                    <span className="saves-inline">· Saves: {c.savingThrows}</span>
+                  )}
+                </div>
+              </div>
+              {inspectedRef && (
+                <div className="compendium-popover" role="region" aria-label="Spell or skill reference">
+                  <div className="compendium-popover-head">
+                    <div>
+                      <strong>{inspectedRef.title}</strong>
+                      <span>{inspectedRef.subtitle}</span>
+                    </div>
+                    <button type="button" className="icon-button" aria-label="Close reference" onClick={() => setInspectedRef(null)}><X size={12} /></button>
+                  </div>
+                  <p>{inspectedRef.body}</p>
+                </div>
+              )}
+            </section>
+            <section className="sheet-section appearance-section">
+              <h3><ScrollText size={14} />Appearance & belongings</h3>
+              <p className="appearance-description">{c.appearance}</p>
+              <div className="belongings-line"><Coins size={13} /><strong>{c.money}</strong><span className="mini-divider" /><span>{c.equipment}</span></div>
+              <div className="language-line">
+                <Languages size={13} /><span>{c.languages}</span>
+                <span className="mini-divider" /><span className="background-tag">{c.background}</span>
+                {hasDeity && <><span className="mini-divider" /><span className="background-tag"><Compass size={11} /> {c.faith}</span></>}
+                {c.movement && c.movement !== "walk 30 ft." && <><span className="mini-divider" /><span className="background-tag">{c.movement}</span></>}
               </div>
             </section>
-            <section className="sheet-section appearance-section"><h3><ScrollText size={14} />Appearance & belongings</h3><p className="appearance-description">{c.appearance}</p><div className="belongings-line"><Coins size={13} /><strong>{c.money}</strong><span className="mini-divider" /><span>{c.equipment}</span></div><div className="language-line"><Languages size={13} /><span>{c.languages}</span><span className="mini-divider" /><span className="background-tag">{c.background}</span>{c.movement && c.movement !== "walk 30 ft." && <><span className="mini-divider" /><span className="background-tag">{c.movement}</span></>}</div></section>
           </div>
         </div>
         <div className="beneath-surface"><Sparkles size={15} /><span>BENEATH THE SURFACE</span><p>{c.secret}</p></div>
-        <footer className="sheet-footer"><span><BookOpen size={13} />A whole person. Just the essentials.</span><div className="sheet-footer-links">{onOpenCombatMode && <button onClick={onOpenCombatMode}><Swords size={12} />Combat sheet</button>}<button onClick={() => onTab("profile")}>View full profile<ArrowRight size={13} /></button></div></footer>
+        <footer className="sheet-footer"><span><BookOpen size={13} />A whole person. Just the essentials.</span><div className="sheet-footer-links">{onOpenCombatMode && <button onClick={onOpenCombatMode}><Swords size={12} />Combat stat block</button>}<button onClick={() => onTab("profile")}>View full profile<ArrowRight size={13} /></button></div></footer>
       </>}
-      {tab === "profile" && <div className="full-profile" role="tabpanel"><div className="full-profile-intro"><span className="section-kicker">THE COMPLETE CHARACTER</span><p>{c.tagline}</p></div><div className="profile-grid">{getProfileSections(c).map(section => <section className="profile-section" key={section.title}><h3>{section.title}</h3><dl>{section.fields.map(([label, value], i) => <div key={`${label}-${i}`}><dt>{label}</dt><dd>{value}</dd></div>)}</dl></section>)}</div>{c.sourceText && <details className="original-source"><summary>Original imported source</summary><pre>{c.sourceText}</pre></details>}<p className="profile-seed">{c.seed ? `Generation seed: ${c.seed}` : "Made with Fable"}</p></div>}
+      {tab === "profile" && <div className="full-profile" role="tabpanel"><div className="full-profile-intro"><span className="section-kicker">THE COMPLETE CHARACTER</span><p>{c.tagline}</p>{legend && c.legendDistinction && <p className="legend-profile-note"><strong>{legend.starsText}{legend.isLegend ? " · Legend" : ""}:</strong> {c.legendDistinction}</p>}</div><div className="profile-grid">{getProfileSections(c).map(section => <section className="profile-section" key={section.title}><h3>{section.title}</h3><dl>{section.fields.map(([label, value], i) => <div key={`${label}-${i}`}><dt>{label}</dt><dd>{value}</dd></div>)}</dl></section>)}</div>{c.sourceText && <details className="original-source"><summary>Original imported source</summary><pre>{c.sourceText}</pre></details>}<p className="profile-seed">{c.seed ? `Generation seed: ${c.seed}` : "Made with Fable"}</p></div>}
       {tab === "notes" && <NotesPanel key={c.id} character={c} onUpdate={onUpdate} saving={saving} />}
     </article>
   );

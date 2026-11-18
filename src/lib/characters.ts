@@ -1,7 +1,14 @@
 export type Ability = "STR" | "DEX" | "CON" | "INT" | "WIS" | "CHA";
 export type ProfileSection = { title: string; fields: [string, string][] };
 export type CharacterNote = { id: string; text: string; date: string };
-export type Collection = { id: string; name: string; color: string; parentId?: string | null };
+export type LocationKind = "region" | "city" | "sublocation";
+export type Collection = {
+  id: string;
+  name: string;
+  color: string;
+  parentId?: string | null;
+  kind?: LocationKind;
+};
 export type Character = {
   id: string; name: string; ancestry: string; age: string; pronouns: string; gender: string;
   occupation: string; location: string; tagline: string; portrait: string; favorite: boolean;
@@ -16,27 +23,45 @@ export type Character = {
   combatClass: string; hitDice: string; proficiencyBonus: string; savingThrows: string;
   wornEquipment: string; attack: string; sidearm: string; additionalActions: string;
   spellcasting: string; bonusActions: string; skills: string; ancestryTraits: string;
+  templateFeatures: string; classFeatures: string; limitedResources: string;
+  combatTactics: string; questOffer: string;
+  legendStars: number; legendDistinction: string;
   movement: string; resistances: string; threatResponse: string;
   equipment: string; money: string; notes: CharacterNote[]; details: ProfileSection[]; sourceText?: string;
 };
 
 export const defaultCollections: Collection[] = [
-  { id: "rimel", name: "Rimel", color: "#a6b48c", parentId: null },
-  { id: "rimel-stage", name: "Lantern Stage & Market", color: "#a6b48c", parentId: "rimel" },
-  { id: "rimel-inn", name: "The Hearthstone Inn", color: "#a6b48c", parentId: "rimel" },
-  { id: "rimel-watch", name: "Apothecary & Watchhouse", color: "#a6b48c", parentId: "rimel" },
-  { id: "almateira", name: "Almateira", color: "#83a7b3", parentId: null },
-  { id: "almateira-port", name: "Old-World Wine Vaults", color: "#83a7b3", parentId: "almateira" },
-  { id: "frontier", name: "The Frontier Reach", color: "#c59d7d", parentId: null },
-  { id: "frontier-crossroads", name: "Greenway & Crossroads", color: "#c59d7d", parentId: "frontier" },
+  // Regions (tier 1)
+  { id: "rimel", name: "Rimel", color: "#a6b48c", parentId: null, kind: "region" },
+  { id: "almateira", name: "Almateira", color: "#83a7b3", parentId: null, kind: "region" },
+  { id: "ruinholds", name: "The Ruinholds (Los Bastiones Arruinados)", color: "#ad9cc1", parentId: null, kind: "region" },
+  { id: "frontier", name: "The Frontier Reach", color: "#c59d7d", parentId: null, kind: "region" },
+
+  // Cities / Settlements (tier 2)
+  { id: "city-high-rimel", name: "High Rimel", color: "#a6b48c", parentId: "rimel", kind: "city" },
+  { id: "city-port-almateira", name: "Port Almateira", color: "#83a7b3", parentId: "almateira", kind: "city" },
+  { id: "city-ashen-bastion", name: "Ashen Bastion", color: "#ad9cc1", parentId: "ruinholds", kind: "city" },
+  { id: "city-crossroads-town", name: "Crossroads Market", color: "#c59d7d", parentId: "frontier", kind: "city" },
+
+  // Sublocations / Places (tier 3)
+  { id: "rimel-stage", name: "Lantern Stage & Market", color: "#a6b48c", parentId: "city-high-rimel", kind: "sublocation" },
+  { id: "rimel-inn", name: "The Hearthstone Inn", color: "#a6b48c", parentId: "city-high-rimel", kind: "sublocation" },
+  { id: "rimel-watch", name: "Apothecary & Watchhouse", color: "#a6b48c", parentId: "city-high-rimel", kind: "sublocation" },
+  { id: "almateira-port", name: "Old-World Wine Vaults", color: "#83a7b3", parentId: "city-port-almateira", kind: "sublocation" },
+  { id: "ruinholds-spire", name: "Sunken Spire Archive", color: "#ad9cc1", parentId: "city-ashen-bastion", kind: "sublocation" },
+  { id: "frontier-crossroads", name: "Greenway & Crossroads", color: "#c59d7d", parentId: "city-crossroads-town", kind: "sublocation" },
 ];
 
 export function getCollectionPath(collectionId: string, collections: Collection[]): string {
-  const current = collections.find(c => c.id === collectionId);
-  if (!current) return "Unindexed";
-  if (!current.parentId) return current.name;
-  const parent = collections.find(c => c.id === current.parentId);
-  return parent ? `${parent.name} › ${current.name}` : current.name;
+  const parts: string[] = [];
+  let current = collections.find(c => c.id === collectionId);
+  const visited = new Set<string>();
+  while (current && !visited.has(current.id)) {
+    parts.unshift(current.name);
+    visited.add(current.id);
+    current = current.parentId ? collections.find(c => c.id === current!.parentId) : undefined;
+  }
+  return parts.length ? parts.join(" › ") : "Unindexed";
 }
 
 export function matchesCollectionFilter(characterCollectionId: string, filterId: string, collections: Collection[]): boolean {
@@ -50,6 +75,15 @@ export function matchesCollectionFilter(characterCollectionId: string, filterId:
     current = collections.find(c => c.id === current!.parentId);
   }
   return false;
+}
+
+export function formatLegendBadge(stars: number): { starsText: string; isLegend: boolean } | null {
+  const count = Math.max(0, Math.min(5, Math.round(stars || 0)));
+  if (count <= 0) return null;
+  return {
+    starsText: "★".repeat(count),
+    isLegend: count >= 3,
+  };
 }
 
 export const abilityNames: Ability[] = ["STR", "DEX", "CON", "INT", "WIS", "CHA"];
@@ -75,7 +109,9 @@ export function blankCharacter(): Character {
     combatClass: "Ordinary civilian", hitDice: "1d8", proficiencyBonus: "+2", savingThrows: "No save proficiencies",
     wornEquipment: "No armour or shield", attack: "Unarmed strike · +2 to hit · 1 bludgeoning", sidearm: "",
     additionalActions: "", spellcasting: "", bonusActions: "None", skills: "Perception +2",
-    ancestryTraits: "", movement: "walk 30 ft.", resistances: "None registered",
+    ancestryTraits: "", templateFeatures: "", classFeatures: "", limitedResources: "",
+    combatTactics: "", questOffer: "", legendStars: 0, legendDistinction: "",
+    movement: "walk 30 ft.", resistances: "None registered",
     threatResponse: "Avoids unnecessary fights if there is another way out",
     equipment: "Everyday clothes, a small personal keepsake", money: "5 sp", notes: [], details: [],
   };
@@ -98,7 +134,7 @@ const edic: Character = {
   secret: "She’s much funnier than she appears", appearance: "Slender, fair, with black hair and green eyes. Slate-grey layers, warm brown accents, and carefully mended hems.",
   height: "5 ft 5 in / 164 cm", build: "Slender", skin: "Fair", hair: "Black", eyes: "Green",
   mark: "Calloused hands from years of work", clothing: "Theocratic Renaissance fashion; well-worn slate grey with warm brown accents",
-  background: "Outlander", faith: "Vesra, the Blooming Hand", languages: "Common, Tabaxi", wealth: "Poor / precarious",
+  background: "Outlander", faith: "Vesra — The Blooming Hand", languages: "Common, Tabaxi", wealth: "Poor / precarious",
   standing: "Respected local", values: ["Responsibility", "Family"],
   combatClass: "No special class · Ordinary", hitDice: "1d8", proficiencyBonus: "+2", savingThrows: "No save proficiencies",
   wornEquipment: "No armour or shield", attack: "Unarmed strike · +2 to hit · 1 bludgeoning",
@@ -127,10 +163,103 @@ const edic: Character = {
   ],
 };
 
+const daraelle: Character = {
+  ...blankCharacter(),
+  id: "daraelle",
+  name: "Daraelle",
+  ancestry: "Ghostwise Halfling",
+  age: "41",
+  pronouns: "she/her",
+  gender: "Woman",
+  occupation: "Magical Practitioner / Wizard — illusion",
+  location: "The Ruinholds (Los Bastiones Arruinados)",
+  collectionId: "ruinholds-spire",
+  portrait: "",
+  favorite: true,
+  legendStars: 5,
+  legendDistinction: "An archmage whose mastery, breadth of influence, consequential work, personal magical power and regional reach are all independently evidenced.",
+  tagline: "Lucky, brave, and nimble enough to slip past larger creatures. Ghostwise halfling lineage.",
+  seed: "759061",
+  ac: 12,
+  hp: 222,
+  maxHp: 222,
+  hitDice: "18d8+18",
+  speed: "25 ft.",
+  cr: "12",
+  passive: 12,
+  abilities: { STR: 12, DEX: 14, CON: 14, INT: 20, WIS: 15, CHA: 16 },
+  traits: ["Aloof", "Emotionally Private", "Frank"],
+  voice: "Wry and observant",
+  impression: "Cool and collected",
+  perceived: "Shy sweetheart",
+  goal: "Get revenge",
+  motivation: "Feels accountable for what happens around her. Her aloof nature shapes how she pursues it.",
+  complication: "Her need for autonomy and self-direction can make it difficult to compromise.",
+  stakes: "Losing some measure of security, belonging, or confidence in her own choices.",
+  need: "Autonomy and Self-Direction",
+  vulnerableNeed: "Closeness and Intimacy",
+  flaw: "Deeply irrational insecurity",
+  stress: "Goes numb and mechanical — does everything correctly with nothing behind it (Retreat mode)",
+  conflict: "Over-explains and justifies herself until the other person gives up",
+  habit: "Taps a rhythm with her fingers",
+  secret: "She’s much stranger than she appears",
+  appearance: "Wiry (2 ft 10 in), pale rose skin, pale blond hair, washed-out blue eyes, freckles across nose and cheeks. Midnight blue coat smelling of old spellbooks with warm brown accents.",
+  height: "2 ft 10 in (87 cm)",
+  build: "Wiry",
+  skin: "Pale rose",
+  hair: "Pale blond",
+  eyes: "Washed-out blue",
+  distinguishingFeature: "Fine, quiet features",
+  mark: "Freckles across the nose and cheeks",
+  clothing: "Ruinholds frontier local dress; midnight blue coat with warm brown accents",
+  background: "Outlander",
+  faith: "Naskyros — The Sunken King",
+  languages: "Common, Halfling, Tortle",
+  wealth: "Poor / precarious",
+  standing: "Commoner (Archmage)",
+  values: ["Responsibility", "Personal happiness"],
+  combatClass: "Archmage · Exceptional",
+  proficiencyBonus: "+2",
+  savingThrows: "INT +7, WIS +4",
+  wornEquipment: "No armour or shield",
+  attack: "Dagger · +8 to hit · 1d4 + 2 piercing (class feature bonus +4 damage) · reach 5 ft. / range 20/60 ft.",
+  sidearm: "Dagger · +8 to hit · 1d4 + 2 piercing (class feature bonus +4 damage)",
+  additionalActions: "fire bolt ; light ; mage hand ; prestidigitation ; Cast detect magic ; Cast identify ; Cast mage armor ; Cast magic missile ; Cast detect thoughts ; Cast mirror image ; Cast misty step ; Cast counterspell ; Cast fly ; Cast lightning bolt ; Cast banishment ; Cast fire shield ; Cast stoneskin ; Cast cone of cold ; Cast scrying ; Cast wall of force ; Cast globe of invulnerability ; Cast teleport ; Cast mind blank ; Cast time stop ; Cast shield ; Cast dispel magic ; Cast fireball ; Cast dimension door ; Cast greater invisibility ; Cast chain lightning ; Cast disintegrate ; Cast meteor swarm",
+  spellcasting: "INT (Archmage, Save DC 15, spell attack +7) — Spells: fire bolt, light, mage hand, prestidigitation, detect magic, disguise self, identify, mage armor, magic missile, shield, detect thoughts, mirror image, misty step, counterspell, dispel magic, fireball, fly, lightning bolt, banishment, dimension door, fire shield, greater invisibility, stoneskin, cone of cold, scrying, wall of force, chain lightning, disintegrate, globe of invulnerability, prismatic spray, teleport, mind blank, meteor swarm, time stop",
+  templateFeatures: "Magic Resistance: Advantage on saving throws against spells and other magical effects. · Spellcasting: 18th-level Archmage spell list and spell slots.",
+  classFeatures: "Arcane Mastery: Can cast prepared high-level spells and has exceptional magical knowledge. · Arcane Recovery: Once per day after a short rest, recover expended spell slots with a combined level up to half the wizard’s level. · Relentless: The first time reduced to 0 hit points, drops to 1 hit point instead (once per long rest).",
+  limitedResources: "4×1st-level slot, 3×2nd-level slot, 3×3rd-level slot, 3×4th-level slot, 3×5th-level slot, 1×6th-level slot, 1×7th-level slot, 1×8th-level slot, 1×9th-level slot · Arcane Recovery (1/day) · Relentless (1/long rest)",
+  combatTactics: "Role: Ranged controller / spell support · Positioning: Prefer cover and distance; reposition when threatened · Target priority: Exploit exposed or distracted targets; favour enemy support or ranged threats · Retreat: Reassesses when badly wounded or outnumbered; retreats if survival no longer serves the goal.",
+  questOffer: "Locate a source, specimen or missing research — Recover reliable evidence, a lost text or a requested specimen from a ruin or archive before a rival claims the discovery. Reward: Research access, information, a crafted service or payment.",
+  bonusActions: "None",
+  skills: "Arcana +7",
+  ancestryTraits: "Lucky: reroll a 1 on an attack roll, ability check or saving throw · Brave: advantage on saves against being frightened · Halfling Nimbleness: move through the space of a larger creature · Silent Speech: limited-range telepathic communication",
+  movement: "walk 25 ft.",
+  resistances: "Magic Resistance (advantage on spell saves)",
+  threatResponse: "Freezes for a beat, then looks for the fastest way out — uses a wand and a very healthy respect for distance",
+  equipment: "Dagger [carried] · Arcane focus: wand [carried] · Book: arcane theory [carried] · Spell component pouch [carried] · Annotated pocket reference book [carried]",
+  money: "3 sp, 3 cp",
+  notes: [
+    { id: "daraelle-note-1", text: "Leads advanced research in the Ruinholds. Needs a party to recover a lost text from a disputed ruin before a rival researcher claims it.", date: "2026-06-16T20:00:00.000Z" },
+  ],
+  details: [
+    { title: "At a glance", fields: [["Sexual orientation", "Asexual"], ["Romantic orientation", "Biromantic"], ["Temperament", "Quiet / Withdrawn"]] },
+    { title: "Origin & upbringing", fields: [["Birthplace", "The Ruinholds (Los Bastiones Arruinados) (A frontier of ruined strongholds, scattered settlements and dangerous wild areas.)"], ["Upbringing", "The Ruinholds (Los Bastiones Arruinados)"], ["Relationship", "Raised in the birthplace community"], ["Origin category", "Named regions and frontiers"]] },
+    { title: "Appearance", fields: [["Distinguishing feature", "Fine, quiet features"], ["Notable mark", "Freckles across the nose and cheeks"], ["Clothing style", "Ruinholds frontier local dress"], ["Outfit", "A coat heavy with the particular smell of old spellbooks, locally rooted silhouettes. Mostly midnight blue, with warm brown accents; well-worn, patched more than once."]] },
+    { title: "Faith & religion", fields: [["Religious outlook", "Observant"], ["Deity affinity", "Naskyros — The Sunken King"], ["Connection", "An important presence in their religious life"], ["Aspects", "The deep, Memory, The past, Inevitable end, The sea"], ["Values informing affinity", "Responsibility, personal happiness"]] },
+    { title: "Personal objectives", fields: [["Personal objective", "Make progress toward: Get revenge"], ["Why it matters", "Because they feel accountable for what happens around them. Their aloof nature shapes how they pursue it."], ["Next step", "Secure the resource, information or cooperation needed for the next stage."], ["Complication", "Their need for autonomy and self-direction can make it difficult to compromise."]] },
+    { title: "Quest they can offer", fields: [["Quest", "Locate a source, specimen or missing research"], ["Patron’s reason", "A gap in their work prevents a larger question from being answered."], ["Objective", "Recover reliable evidence, a lost text or a requested specimen."], ["Target", "A library, ruin, former colleague, archive or field site."], ["Complication", "The evidence is incomplete, protected or disputed by another researcher."], ["Reward", "Research access, information, a crafted service or payment"], ["Urgency", "Before a rival claims the discovery or the evidence deteriorates"]] },
+    { title: "Combat tactics", fields: [["Combat role", "Ranged controller / spell support"], ["Preferred positioning", "Prefer cover and distance; reposition when threatened."], ["Target priority", "Exploit exposed or distracted targets; favour enemy support or ranged threats when safely reachable."], ["Teamwork", "Operate independently but exploit ally-created distractions; avoid relying on coordinated formations."], ["Risk & resources", "Balances aggression and caution; spends limited resources when they can change the encounter."], ["Retreat behaviour", "Reassesses when badly wounded, outnumbered or deprived of support; retreats if survival no longer serves the goal."]] },
+    { title: "Legendary distinction", fields: [["Distinction", "An archmage whose mastery, breadth of influence, consequential work, personal magical power and regional reach are all independently evidenced."], ["Office / standing", "Archmage"], ["Responsibility", "Leads a major arcane institution and is responsible for advanced research, practitioners and dangerous magical decisions."], ["Wider contribution", "Their work affects institutions and communities across the region, with consequences extending well beyond their immediate circle."], ["Reach", "Their scholarship, office and interventions are recognised across the region."]] },
+    { title: "Legend profile", fields: [["Legend status", "Legend-qualified · 5/5 stars"], ["★ Specialisation", "Qualified (Exceptional mastery in Personal & Informational: 3.35 / 4)"], ["★ Breadth", "Qualified (4 dimensions reach Notable or better, including 2 Exceptional)"], ["★ Impact", "Qualified (Contextual impact 4.00 / 4; affected population 5000 people)"], ["★ Personal Power", "Qualified (Combat capability CR 12, threshold CR 5)"], ["★ Social Reach", "Qualified (Established regional influence across The Ruinholds)"]] },
+    { title: "Power profile", fields: [["Prominence", "Exceptional (3.35 / 4)"], ["Influence visibility", "Public"], ["Strongest source of power", "Personal"], ["Personal", "Exceptional (CR 12 and spellcasting)"], ["Social", "Influential"], ["Institutional", "Influential (Scholarship and education)"], ["Economic", "Ordinary"], ["Informational", "Exceptional"]] },
+  ],
+};
+
 const ariun: Character = {
   ...blankCharacter(), id: "ariun-silverleaf", name: "Ariun Silverleaf", ancestry: "Sea Elf", age: "631",
   pronouns: "he/him", gender: "Man", occupation: "Merchant / Trader — wine and spirits", location: "Almateira",
-  collectionId: "almateira-port", portrait: "", favorite: true,
+  collectionId: "almateira-port", portrait: "", favorite: true, legendStars: 1,
   tagline: "Darkvision, keen senses, trance instead of sleep, resistant to charm. Aquatic elven lineage.",
   seed: "673299", ac: 10, hp: 5, maxHp: 5, speed: "30 ft.", cr: "1/2", passive: 10,
   abilities: { STR: 12, DEX: 10, CON: 10, INT: 16, WIS: 11, CHA: 12 },
@@ -156,6 +285,8 @@ const ariun: Character = {
   sidearm: "Dagger · +5 to hit · 1d4 + 1 piercing (class feature bonus +2 damage)",
   additionalActions: "eldritch blast (at-will) ; mage hand (at-will) ; minor illusion (at-will) ; Cast armor of agathys ; Cast hex ; Cast hold person ; Cast invisibility ; Cast counterspell ; Cast fear ; Cast hunger of hadar",
   spellcasting: "CHA (Save DC 11, spell attack +3) — Spells: armor of agathys, charm person, hellish rebuke, hex, hold person, invisibility, misty step, counterspell, fear, hunger of hadar, blight, dimension door",
+  limitedResources: "2×3rd-level slot (Pact Magic: regained on short or long rest)",
+  combatTactics: "Role: Pact striker & trickster · Positioning: Opens from range with eldritch blast or crossbow, uses misty step and invisibility when cornered · Target priority: Focuses on whoever insulted or threatened him first.",
   bonusActions: "None",
   skills: "Deception +3, Persuasion +3, Perception +2",
   ancestryTraits: "Darkvision (60 ft.) · Fey Ancestry (advantage vs. charmed; immune to magical sleep) · Keen Senses · Trance · Amphibious · Sea Elf Training · Child of the Sea · Friend of the Sea",
@@ -186,12 +317,13 @@ const ariun: Character = {
 
 export const defaultCharacters: Character[] = [
   edic,
+  daraelle,
   ariun,
-  { ...blankCharacter(), id: "borin-ashmantle", name: "Borin Ashmantle", ancestry: "Mountain Dwarf", age: "142", pronouns: "he/him", gender: "Man", occupation: "Innkeeper", location: "Rimel", collectionId: "rimel-inn", portrait: "", tagline: "A warm hearth, a good story, and a secret kept.", traits: ["Generous", "Stubborn", "Perceptive"], voice: "Warm, gravelly, and unhurried", impression: "A welcome as solid as the stone walls", goal: "Keep his inn out of the guild’s hands", appearance: "Copper beard, kind eyes, an olive tunic under a much-mended apron.", ac: 13, hp: 22, maxHp: 22, hitDice: "3d8 + 6", cr: "1/2", combatClass: "Brawler · Veteran", savingThrows: "STR +4, CON +4", abilities: { STR: 15, DEX: 10, CON: 14, INT: 11, WIS: 13, CHA: 12 }, attack: "Heavy club · +4 to hit · 1d8 + 2 bludgeoning", sidearm: "Thrown tankard · +4 to hit · 1d4 + 2 bludgeoning (range 20/60 ft.)", ancestryTraits: "Darkvision (60 ft.) · Dwarven Resilience (advantage vs. poison, resistance to poison damage)", resistances: "Poison", movement: "walk 25 ft. · darkvision 60 ft.", threatResponse: "Plants his feet behind the bar and defends his patrons without backing down", equipment: "Iron keys, a clean tankard, a family signet", money: "2 gp, 8 sp", faith: "The hearth ancestors", standing: "Beloved proprietor", background: "Guild artisan", need: "To keep his people safe", secret: "Once sheltered a wanted revolutionary", notes: [] },
-  { ...blankCharacter(), id: "sera-willowmere", name: "Sera Willowmere", ancestry: "Half-Elf", age: "67", pronouns: "she/her", gender: "Woman", occupation: "Herbalist & healer", location: "Rimel", collectionId: "rimel-watch", portrait: "", favorite: true, tagline: "There is a remedy for almost everything.", traits: ["Compassionate", "Private", "Intuitive"], voice: "Soft, melodic, with long pauses", impression: "Gentle hands and watchful eyes", goal: "Find a cure for the blight spreading east", appearance: "An ivory braid, a sage cloak, and the faint scent of wild thyme.", ac: 12, hp: 14, maxHp: 14, hitDice: "3d8", cr: "1/4", combatClass: "Acolyte healer · Adept", savingThrows: "WIS +4, CHA +3", abilities: { STR: 9, DEX: 12, CON: 11, INT: 13, WIS: 15, CHA: 12 }, attack: "Quarterstaff · +1 to hit · 1d6 - 1 bludgeoning", additionalActions: "Cast cure wounds ; Cast lesser restoration ; Cast sanctuary ; Healer’s poultice (stabilize & restore 1d6 + 2 HP)", spellcasting: "WIS (Save DC 12, spell attack +4) — Spells: guidance, spare the dying, cure wounds, healing word, sanctuary, lesser restoration", ancestryTraits: "Darkvision (60 ft.) · Fey Ancestry (advantage vs. charmed; immune to magical sleep)", skills: "Medicine +5, Nature +4", equipment: "Herbalism kit, dried herbs, a silver locket", faith: "Vesra, the Blooming Hand", need: "To make amends", secret: "Knows more about the blight’s origin than she admits", notes: [] },
-  { ...blankCharacter(), id: "captain-varek", name: "Captain Varek", ancestry: "Human", age: "56", pronouns: "he/him", gender: "Man", occupation: "Watch captain", location: "Rimel", collectionId: "rimel-watch", portrait: "", tagline: "The law is simple. People never are.", traits: ["Dutiful", "Weary", "Fair-minded"], voice: "Clipped, low, with a tired rasp", impression: "A man who notices every exit", goal: "Keep the peace without becoming a tyrant", ac: 16, hp: 32, maxHp: 32, hitDice: "5d8 + 10", cr: "1", combatClass: "Martial captain · Veteran", savingThrows: "STR +4, CON +4", wornEquipment: "Breastplate", abilities: { STR: 15, DEX: 12, CON: 14, INT: 12, WIS: 14, CHA: 11 }, attack: "Longsword · +4 to hit · 1d8 + 2 slashing", sidearm: "Light crossbow · +3 to hit · 1d8 + 1 piercing (range 80/320 ft.)", bonusActions: "Rally the Watch (1/short rest: ally within 30 ft. gains +2 AC until next turn) · Parry (Reaction: +2 AC against one melee attack)", threatResponse: "Calls for surrender first, then forms a disciplined shield line", appearance: "Weathered face, greying beard, a scar through one eyebrow. Well-kept armour.", equipment: "Longsword, breastplate, watch insignia, duty roster", skills: "Insight +4, Perception +4", passive: 14, background: "Soldier", notes: [] },
-  { ...blankCharacter(), id: "thistle-underbough", name: "Thistle Underbough", ancestry: "Forest Gnome", age: "42", pronouns: "they/them", occupation: "Courier & wayfinder", collectionId: "frontier-crossroads", location: "The Greenway", portrait: "", tagline: "No road too long. No message too small.", traits: ["Restless", "Cheerful", "Resourceful"], voice: "Quick, bright, and full of tangents", impression: "A blur of red hair and road dust", goal: "Deliver a letter no one will claim", speed: "25 ft", movement: "walk 25 ft. · darkvision 60 ft.", ancestryTraits: "Darkvision (60 ft.) · Gnome Cunning (advantage on INT, WIS, CHA saves vs. magic) · Speak with Small Beasts", spellcasting: "INT (Innate) — At will: minor illusion", appearance: "Wild auburn curls, a mossy travelling cloak, and an enormous satchel.", equipment: "Messenger satchel, sealed letters, a brass compass", notes: [] },
-  { ...blankCharacter(), id: "nyx-ashveil", name: "Nyx Ashveil", ancestry: "Tiefling", age: "29", pronouns: "she/they", occupation: "Information broker", collectionId: "frontier-crossroads", location: "The Crossroads", portrait: "", tagline: "The right question is worth more than the answer.", traits: ["Witty", "Calculating", "Patient"], voice: "Low, velvet-soft, faintly amused", impression: "Knows your name before you introduce yourself", goal: "Uncover the patron behind a vanished caravan", appearance: "Muted plum skin, swept-back horns, a charcoal coat with discreet silver clasps.", secret: "Has never actually left the frontier", ac: 13, hp: 16, maxHp: 16, hitDice: "3d8 + 3", cr: "1/2", combatClass: "Spy & informant · Adept", abilities: { STR: 10, DEX: 14, CON: 12, INT: 14, WIS: 12, CHA: 15 }, attack: "Concealed stiletto · +4 to hit · 1d4 + 2 piercing (plus 2d6 Sneak Attack when advantaged)", bonusActions: "Cunning Action (Dash, Disengage, or Hide)", spellcasting: "CHA (Tiefling legacy, Save DC 12) — At will: thaumaturgy ; 1/day: hellish rebuke, darkness", resistances: "Fire", movement: "walk 30 ft. · darkvision 60 ft.", skills: "Deception +5, Insight +4, Stealth +4", equipment: "Coded notebook, a silver coin, three different keys", money: "12 gp", notes: [] },
+  { ...blankCharacter(), id: "borin-ashmantle", name: "Borin Ashmantle", ancestry: "Mountain Dwarf", age: "142", pronouns: "he/him", gender: "Man", occupation: "Innkeeper", location: "Rimel", collectionId: "rimel-inn", portrait: "", tagline: "A warm hearth, a good story, and a secret kept.", traits: ["Generous", "Stubborn", "Perceptive"], voice: "Warm, gravelly, and unhurried", impression: "A welcome as solid as the stone walls", goal: "Keep his inn out of the guild’s hands", appearance: "Copper beard, kind eyes, an olive tunic under a much-mended apron.", ac: 13, hp: 22, maxHp: 22, hitDice: "3d8 + 6", cr: "1/2", combatClass: "Brawler · Veteran", savingThrows: "STR +4, CON +4", abilities: { STR: 15, DEX: 10, CON: 14, INT: 11, WIS: 13, CHA: 12 }, attack: "Heavy club · +4 to hit · 1d8 + 2 bludgeoning", sidearm: "Thrown tankard · +4 to hit · 1d4 + 2 bludgeoning (range 20/60 ft.)", ancestryTraits: "Darkvision (60 ft.) · Dwarven Resilience: advantage on saves against poison and resistance to poison damage", resistances: "Poison", movement: "walk 25 ft. · darkvision 60 ft.", combatTactics: "Role: Close-quarters defender · Positioning: Holds choke points behind the bar or doorway · Retreat: Refuses to abandon his inn unless patrons are in mortal danger.", threatResponse: "Plants his feet behind the bar and defends his patrons without backing down", equipment: "Iron keys, a clean tankard, a family signet", money: "2 gp, 8 sp", faith: "The Hearth Ancestors", standing: "Beloved proprietor", background: "Guild artisan", need: "To keep his people safe", secret: "Once sheltered a wanted revolutionary", notes: [] },
+  { ...blankCharacter(), id: "sera-willowmere", name: "Sera Willowmere", ancestry: "Half-Elf", age: "67", pronouns: "she/her", gender: "Woman", occupation: "Herbalist & healer", location: "Rimel", collectionId: "rimel-watch", portrait: "", favorite: true, tagline: "There is a remedy for almost everything.", traits: ["Compassionate", "Private", "Intuitive"], voice: "Soft, melodic, with long pauses", impression: "Gentle hands and watchful eyes", goal: "Find a cure for the blight spreading east", appearance: "An ivory braid, a sage cloak, and the faint scent of wild thyme.", ac: 12, hp: 14, maxHp: 14, hitDice: "3d8", cr: "1/4", combatClass: "Acolyte healer · Adept", savingThrows: "WIS +4, CHA +3", abilities: { STR: 9, DEX: 12, CON: 11, INT: 13, WIS: 15, CHA: 12 }, attack: "Quarterstaff · +1 to hit · 1d6 - 1 bludgeoning", additionalActions: "Cast cure wounds ; Cast lesser restoration ; Cast sanctuary ; Healer’s poultice (stabilize & restore 1d6 + 2 HP)", spellcasting: "WIS (Save DC 12, spell attack +4) — Spells: guidance, spare the dying, cure wounds, healing word, sanctuary, lesser restoration", limitedResources: "4×1st-level slot, 2×2nd-level slot · Healer’s Poultice (2/day)", ancestryTraits: "Darkvision (60 ft.) · Fey Ancestry: advantage on saves against being charmed; magic cannot put her to sleep", skills: "Medicine +5, Nature +4", equipment: "Herbalism kit, dried herbs, a silver locket", faith: "Vesra — The Blooming Hand", need: "To make amends", secret: "Knows more about the blight’s origin than she admits", notes: [] },
+  { ...blankCharacter(), id: "captain-varek", name: "Captain Varek", ancestry: "Human", age: "56", pronouns: "he/him", gender: "Man", occupation: "Watch captain", location: "Rimel", collectionId: "rimel-watch", portrait: "", legendStars: 2, tagline: "The law is simple. People never are.", traits: ["Dutiful", "Weary", "Fair-minded"], voice: "Clipped, low, with a tired rasp", impression: "A man who notices every exit", goal: "Keep the peace without becoming a tyrant", ac: 16, hp: 32, maxHp: 32, hitDice: "5d8 + 10", cr: "1", combatClass: "Martial captain · Veteran", savingThrows: "STR +4, CON +4", wornEquipment: "Breastplate", abilities: { STR: 15, DEX: 12, CON: 14, INT: 12, WIS: 14, CHA: 11 }, attack: "Longsword · +4 to hit · 1d8 + 2 slashing", sidearm: "Light crossbow · +3 to hit · 1d8 + 1 piercing (range 80/320 ft.)", classFeatures: "Rally the Watch: Bonus action (1/short rest), one ally within 30 ft. gains +2 AC until the start of Varek’s next turn. · Parry: Reaction, adds +2 to AC against one melee attack that would hit him.", limitedResources: "Rally the Watch (1/short rest)", bonusActions: "Rally the Watch (1/short rest: ally within 30 ft. gains +2 AC) · Parry (Reaction: +2 AC vs. one melee hit)", combatTactics: "Role: Frontline commander · Positioning: Steps between attackers and civilians · Target priority: Disarms or pins down the most aggressive combatant first.", threatResponse: "Calls for surrender first, then forms a disciplined shield line", appearance: "Weathered face, greying beard, a scar through one eyebrow. Well-kept armour.", equipment: "Longsword, breastplate, watch insignia, duty roster", skills: "Insight +4, Perception +4", passive: 14, faith: "Aureon — The Just Scale", background: "Soldier", notes: [] },
+  { ...blankCharacter(), id: "thistle-underbough", name: "Thistle Underbough", ancestry: "Forest Gnome", age: "42", pronouns: "they/them", occupation: "Courier & wayfinder", collectionId: "frontier-crossroads", location: "The Greenway", portrait: "", tagline: "No road too long. No message too small.", traits: ["Restless", "Cheerful", "Resourceful"], voice: "Quick, bright, and full of tangents", impression: "A blur of red hair and road dust", goal: "Deliver a letter no one will claim", speed: "25 ft", movement: "walk 25 ft. · darkvision 60 ft.", ancestryTraits: "Darkvision (60 ft.) · Gnome Cunning: advantage on INT, WIS, CHA saves against magic · Speak with Small Beasts: communicate simple ideas with Small or smaller beasts", spellcasting: "INT (Innate) — Spells: minor illusion", faith: "The Road-Winds", appearance: "Wild auburn curls, a mossy travelling cloak, and an enormous satchel.", equipment: "Messenger satchel, sealed letters, a brass compass", notes: [] },
+  { ...blankCharacter(), id: "nyx-ashveil", name: "Nyx Ashveil", ancestry: "Tiefling", age: "29", pronouns: "she/they", occupation: "Information broker", collectionId: "frontier-crossroads", location: "The Crossroads", portrait: "", tagline: "The right question is worth more than the answer.", traits: ["Witty", "Calculating", "Patient"], voice: "Low, velvet-soft, faintly amused", impression: "Knows your name before you introduce yourself", goal: "Uncover the patron behind a vanished caravan", appearance: "Muted plum skin, swept-back horns, a charcoal coat with discreet silver clasps.", secret: "Has never actually left the frontier", ac: 13, hp: 16, maxHp: 16, hitDice: "3d8 + 3", cr: "1/2", combatClass: "Spy & informant · Adept", abilities: { STR: 10, DEX: 14, CON: 12, INT: 14, WIS: 12, CHA: 15 }, attack: "Concealed stiletto · +4 to hit · 1d4 + 2 piercing (plus 2d6 Sneak Attack when advantaged)", classFeatures: "Cunning Action: On each of her turns, Nyx can use a bonus action to take the Dash, Disengage, or Hide action. · Sneak Attack (2d6): Deals an extra 2d6 damage once per turn when she hits with advantage or an ally is within 5 ft. of the target.", bonusActions: "Cunning Action (Dash, Disengage, or Hide)", spellcasting: "CHA (Tiefling legacy, Save DC 12) — Spells: thaumaturgy, hellish rebuke, darkness", limitedResources: "Hellish Rebuke (1/day) · Darkness (1/day)", resistances: "Fire", movement: "walk 30 ft. · darkvision 60 ft.", skills: "Deception +5, Insight +4, Stealth +4", faith: "No strong affiliation (keeps a coin for luck)", equipment: "Coded notebook, a silver coin, three different keys", money: "12 gp", notes: [] },
 ];
 
 export function getProfileSections(c: Character): ProfileSection[] {
@@ -203,7 +335,9 @@ export function getProfileSections(c: Character): ProfileSection[] {
     { title: "Life & path", fields: [["Occupation", c.occupation], ["Background", c.background], ["Current goal", c.goal]] },
     { title: "Languages", fields: [["Speaks", c.languages]] },
     { title: "Faith & religion", fields: [["Deity affinity", c.faith]] },
-    { title: "Combat statistics", fields: [["Combat class", c.combatClass], ["Challenge rating", c.cr], ["Armour Class", String(c.ac)], ["Worn equipment", c.wornEquipment], ["Hit Points", `${c.hp} / ${c.maxHp}${c.hitDice ? ` (${c.hitDice})` : ""}`], ["Speed", c.speed], ["Movement & senses", c.movement], ["Ability scores", abilityNames.map(a => `${a} ${c.abilities[a]} (${signed(modifier(c.abilities[a]))})`).join(" · ")], ["Proficiency bonus", c.proficiencyBonus], ["Saving throws", c.savingThrows], ["Attack", c.attack], ["Sidearm", c.sidearm], ["Additional actions", c.additionalActions], ["Spellcasting", c.spellcasting], ["Bonus actions / reactions", c.bonusActions], ["Skills", c.skills], ["Ancestry traits", c.ancestryTraits], ["Resistances / immunities", c.resistances], ["Passive Perception", String(c.passive)]] },
+    { title: "Combat statistics", fields: [["Combat class", c.combatClass], ["Challenge rating", c.cr], ["Armour Class", String(c.ac)], ["Worn equipment", c.wornEquipment], ["Hit Points", `${c.hp} / ${c.maxHp}${c.hitDice ? ` (${c.hitDice})` : ""}`], ["Speed", c.speed], ["Movement & senses", c.movement], ["Ability scores", abilityNames.map(a => `${a} ${c.abilities[a]} (${signed(modifier(c.abilities[a]))})`).join(" · ")], ["Proficiency bonus", c.proficiencyBonus], ["Saving throws", c.savingThrows], ["Template features", c.templateFeatures], ["Class features", c.classFeatures], ["Limited-use resources", c.limitedResources], ["Attack", c.attack], ["Sidearm", c.sidearm], ["Additional actions", c.additionalActions], ["Spellcasting", c.spellcasting], ["Bonus actions / reactions", c.bonusActions], ["Skills", c.skills], ["Ancestry traits", c.ancestryTraits], ["Resistances / immunities", c.resistances], ["Passive Perception", String(c.passive)]] },
+    { title: "Combat tactics", fields: [["Tactical summary", c.combatTactics]] },
+    { title: "Quest they can offer", fields: [["Quest summary", c.questOffer]] },
     { title: "Inventory & possessions", fields: [["Money carried", c.money], ["Possessions", c.equipment]] },
     { title: "Traits", fields: [["Personality", c.traits.join(" · ")]] },
     { title: "Drives", fields: [["Values", c.values.join(" · ")], ["Dominant need", c.need], ["Vulnerable need", c.vulnerableNeed]] },
@@ -213,6 +347,15 @@ export function getProfileSections(c: Character): ProfileSection[] {
     { title: "Under pressure", fields: [["Stress response", c.stress], ["In conflict", c.conflict], ["Under physical threat", c.threatResponse]] },
     { title: "Habits", fields: [["Often", c.habit]] },
   ];
+  if (c.legendStars > 0 || c.legendDistinction) {
+    base.push({
+      title: "Legend profile",
+      fields: [
+        ["Stars", `${c.legendStars}/5 (${c.legendStars >= 3 ? "Legend" : "Notable distinction"})`],
+        ["Distinction", c.legendDistinction],
+      ],
+    });
+  }
   for (const extra of c.details) {
     const existing = base.find(s => s.title.toLowerCase() === extra.title.toLowerCase());
     if (existing) {
@@ -221,7 +364,9 @@ export function getProfileSections(c: Character): ProfileSection[] {
       }
     } else base.push(extra);
   }
-  return base.map(s => ({ ...s, fields: s.fields.filter(([, value]) => Boolean(value)) }));
+  return base
+    .map(s => ({ ...s, fields: s.fields.filter(([, value]) => Boolean(value)) }))
+    .filter(s => s.fields.length > 0);
 }
 
 export function normalizeCharacter(input: unknown): Character {
@@ -233,7 +378,7 @@ export function normalizeCharacter(input: unknown): Character {
   const result = { ...base } as Character;
   for (const key of Object.keys(base) as (keyof Character)[]) {
     if (typeof base[key] === "string" && typeof record[key] === "string") {
-      const limit = key === "portrait" ? 1500000 : key === "tagline" ? 600 : 15000;
+      const limit = key === "portrait" ? 1500000 : key === "tagline" ? 600 : 25000;
       (result as unknown as Record<string, unknown>)[key] = (record[key] as string).slice(0, limit);
     }
   }
@@ -249,6 +394,8 @@ export function normalizeCharacter(input: unknown): Character {
     const value = Number(record[key] ?? base[key]);
     result[key] = Number.isFinite(value) ? Math.max(0, Math.min(9999, value)) : base[key];
   }
+  const starsVal = Number(record.legendStars ?? 0);
+  result.legendStars = Number.isFinite(starsVal) ? Math.max(0, Math.min(5, Math.round(starsVal))) : 0;
   result.maxHp = Math.max(1, result.maxHp);
   result.hp = Math.min(result.hp, result.maxHp);
   result.abilities = { ...base.abilities };
@@ -271,11 +418,12 @@ export function parseCharacterText(text: string): Character {
   const lines = body.split(/\r?\n/);
   const c = blankCharacter();
   if (frontmatter) for (const raw of frontmatter[1].split(/\r?\n/)) {
-    const pair = raw.match(/^(name|ancestry|pronouns|location|occupation|seed):\s*(.+)$/);
+    const pair = raw.match(/^(name|ancestry|pronouns|location|occupation|seed|legendStars):\s*(.+)$/);
     if (!pair) continue;
     let value = pair[2].trim();
     try { const decoded = JSON.parse(value); if (typeof decoded === "string" || typeof decoded === "number") value = String(decoded); } catch { value = value.replace(/^['"]|['"]$/g, ""); }
-    (c as unknown as Record<string, unknown>)[pair[1]] = value;
+    if (pair[1] === "legendStars") c.legendStars = Number(value) || 0;
+    else (c as unknown as Record<string, unknown>)[pair[1]] = value;
   }
   c.name = (lines.find(l => l.trim()) || c.name || "Unnamed character").replace(/^#+\s*/, "").trim();
   const overview = (lines.slice(1).find(l => l.trim()) || "").replace(/^\*|\*$/g, "").trim();
@@ -290,21 +438,26 @@ export function parseCharacterText(text: string): Character {
     "birthplace": "location", "home": "location", "voice": "voice", "first impression": "impression", "current goal": "goal", "wants": "goal",
     "why it matters": "motivation", "why": "motivation", "what complicates it": "complication", "what is at stake": "stakes",
     "dominant need": "need", "needs": "need", "vulnerable need": "vulnerableNeed", "main flaw": "flaw", "flaw": "flaw", "stress response": "stress", "under pressure": "stress",
-    "in conflict": "conflict", "often": "habit", "habit": "habit", "beneath the surface": "secret", "height": "height", "build": "build",
+    "in conflict": "conflict", "interpersonal conflict": "conflict", "often": "habit", "habit": "habit", "beneath the surface": "secret", "height": "height", "build": "build",
     "skin": "skin", "hair": "hair", "eyes": "eyes", "notable mark": "mark", "distinguishing feature": "distinguishingFeature",
     "outfit": "appearance", "appearance": "appearance", "clothing style": "clothing",
     "background": "background", "deity affinity": "faith", "faith": "faith", "languages": "languages", "speaks": "languages", "wealth / means": "wealth", "social standing": "standing",
     "combat class": "combatClass", "proficiency bonus": "proficiencyBonus", "saving throws": "savingThrows",
     "worn equipment": "wornEquipment", "skills": "skills", "attack": "attack", "sidearm": "sidearm",
     "additional actions": "additionalActions", "spellcasting": "spellcasting", "bonus actions / reactions": "bonusActions",
-    "ancestry traits": "ancestryTraits", "movement & senses": "movement", "resistances / immunities": "resistances",
+    "ancestry traits": "ancestryTraits", "template features": "templateFeatures", "class features explained": "classFeatures",
+    "limited-use resources": "limitedResources", "distinction": "legendDistinction",
+    "movement & senses": "movement", "resistances / immunities": "resistances",
     "under physical threat": "threatResponse", "possessions": "equipment", "carried": "equipment",
     "money carried": "money", "money": "money", "seed": "seed", "speed": "speed",
     "armour class": "ac", "armor class": "ac", "ac": "ac", "hit points": "maxHp", "hp": "maxHp", "passive perception": "passive", "challenge rating": "cr", "cr": "cr",
   };
   let section: ProfileSection | null = null;
   let currentHp: number | null = null;
+  let qualifiedStarsCount = 0;
   const importedValues: string[] = [];
+  const tacticsParts: string[] = [];
+  const questParts: string[] = [];
   const parsed: ProfileSection[] = [];
   for (const raw of lines.slice(1)) {
     const line = raw.trim().replace(/^[-*]\s+/, "");
@@ -317,9 +470,27 @@ export function parseCharacterText(text: string): Character {
       const originalValue = pair[2].replace(/\*\*/g, "").trim();
       const value = originalValue.replace(/\s*\([^()]{45,}\)/g, "").replace(/\s+/g, " ").trim();
       const mapped = labels[lowerKey];
-      if (lowerKey === "spellcasting") {
-        const spellMatch = originalValue.match(/^([A-Z]{3})\s*\((?:Combat class\.\s*)?([^;)]+;\s*spells:\s*[^.]+)\./i);
-        c.spellcasting = spellMatch ? `${spellMatch[1]} (${spellMatch[2]})` : value;
+      if (lowerKey === "legend status") {
+        const starMatch = originalValue.match(/(\d+)\s*\/\s*5\s*stars/i);
+        if (starMatch) c.legendStars = Number(starMatch[1]);
+      } else if (key.startsWith("★") && /^qualified\b/i.test(originalValue)) {
+        qualifiedStarsCount += 1;
+      } else if (lowerKey === "spellcasting") {
+        const dcMatch = originalValue.match(/([A-Z]{3})\s+save\s+DC\s+\d+,\s*spell\s+attack\s+[+-]\d+/i);
+        const allSpellBlocks = Array.from(originalValue.matchAll(/spells:\s*([^.|)]+)/gi)).map(m => m[1].trim());
+        const uniqueSpells = Array.from(new Set(allSpellBlocks.join(", ").split(/\s*,\s*/).map(s => s.trim()).filter(Boolean)));
+        if (dcMatch && uniqueSpells.length) {
+          c.spellcasting = `${dcMatch[1].toUpperCase()} (${dcMatch[0]}) — Spells: ${uniqueSpells.join(", ")}`;
+        } else {
+          c.spellcasting = value;
+        }
+      } else if (lowerKey === "template features") {
+        const paren = originalValue.match(/\(([^()]{20,})\)\s*$/);
+        c.templateFeatures = paren ? paren[1].replace(/\s*\|\s*/g, " · ") : value;
+      } else if (lowerKey === "class features explained") {
+        c.classFeatures = value.replace(/\s*;\s*/g, " · ");
+      } else if (lowerKey === "limited-use resources") {
+        c.limitedResources = value;
       } else if (lowerKey === "sidearm" || lowerKey === "attack") {
         const cleaned = originalValue
           .replace(/\s*\((?:Alternate carried weapon|Main at-will attack)[^)]*\)\s*$/i, "")
@@ -329,6 +500,12 @@ export function parseCharacterText(text: string): Character {
       } else if (mapped) {
         if (["ac", "maxHp", "passive"].includes(mapped)) (c as unknown as Record<string, unknown>)[mapped] = parseInt(value) || 0;
         else (c as unknown as Record<string, unknown>)[mapped] = value;
+      }
+      if (section?.title.toLowerCase() === "combat tactics" && lowerKey !== "tactical rationale") {
+        tacticsParts.push(`${key}: ${value}`);
+      }
+      if (section?.title.toLowerCase() === "quest they can offer" && value && value !== "undefined") {
+        questParts.push(`${key}: ${value}`);
       }
       if (mapped === "maxHp") {
         const slashMatch = originalValue.match(/^(\d+)\s*\/\s*(\d+)/);
@@ -347,8 +524,11 @@ export function parseCharacterText(text: string): Character {
       section = { title: line.replace(/^#+\s*/, ""), fields: [] }; parsed.push(section);
     } else if (!c.tagline || c.tagline === blankCharacter().tagline) c.tagline = line;
   }
+  if (!c.legendStars && qualifiedStarsCount > 0) c.legendStars = qualifiedStarsCount;
+  if (tacticsParts.length) c.combatTactics = tacticsParts.join(" · ");
+  if (questParts.length) c.questOffer = questParts.join(" · ");
   const traitSection = parsed.find(s => s.title.toLowerCase() === "traits");
-  if (traitSection?.fields.length && !traitSection.fields.some(([key]) => key.toLowerCase() === "personality")) c.traits = traitSection.fields.map(([key]) => key.replace(/\s*[·—–]\s*(?:Very\s+)?(?:Strong|Moderate|Weak).*$/i, "")).slice(0, 6);
+  if (traitSection?.fields.length && !traitSection.fields.some(([key]) => key.toLowerCase() === "personality")) c.traits = traitSection.fields.map(([key]) => key.replace(/\s*[·—–]\s*(?:Very\s+)?(?:Strong|Moderate|Mild|Weak).*$/i, "")).slice(0, 6);
   const languageSection = parsed.find(s => s.title.toLowerCase() === "languages");
   if (languageSection?.fields.length) {
     const named = languageSection.fields.find(([key]) => ["speaks", "languages"].includes(key.toLowerCase()));

@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowDownToLine, ArrowDownWideNarrow, ArrowLeft, ArrowRight, BookOpen, Check, ChevronDown, ChevronRight, CircleCheck, CircleHelp, CornerDownRight, Feather, FolderOpen, Keyboard, Loader2, MapPin, Maximize2, Moon, PanelLeft, Plus, Search, Settings2, ShieldCheck, Sparkles, Star, Sun, Swords, Upload, UsersRound, X } from "lucide-react";
-import { Character, Collection, getCollectionPath, matchesCollectionFilter, normalizeCharacter, parseCharacterText } from "@/lib/characters";
+import { ArrowDownToLine, ArrowDownWideNarrow, ArrowLeft, ArrowRight, Bookmark, BookOpen, Building2, Check, ChevronDown, ChevronRight, CircleCheck, CircleHelp, CornerDownRight, Feather, FolderOpen, Keyboard, Loader2, MapPin, Maximize2, Moon, PanelLeft, Plus, Search, Settings2, ShieldCheck, Sparkles, Sun, Swords, Upload, UsersRound, X } from "lucide-react";
+import { Character, Collection, LocationKind, formatLegendBadge, getCollectionPath, matchesCollectionFilter, normalizeCharacter, parseCharacterText } from "@/lib/characters";
 import { downloadFile } from "@/lib/exports";
 import CharacterSheet, { SheetTab } from "@/components/character-sheet";
 import CombatMode from "@/components/combat-mode";
@@ -20,6 +20,7 @@ export default function FableApp({ initialCharacters, initialCollections }: { in
   const [collectionId, setCollectionId] = useState("all");
   const [collapsedFolders, setCollapsedFolders] = useState<Record<string, boolean>>({});
   const [initialParentId, setInitialParentId] = useState<string>("");
+  const [initialKind, setInitialKind] = useState<LocationKind>("region");
   const [sort, setSort] = useState("default");
   const [sortOpen, setSortOpen] = useState(false);
   const [tab, setTab] = useState<SheetTab>("session");
@@ -29,11 +30,11 @@ export default function FableApp({ initialCharacters, initialCollections }: { in
   const [focused, setFocused] = useState(false);
   const [combatMode, setCombatMode] = useState(false);
   const [combatantIds, setCombatantIds] = useState<string[]>(() => {
-    const defaults = ["ariun-silverleaf", "captain-varek", "nyx-ashveil"].filter(id => initialCharacters.some(c => c.id === id));
+    const defaults = ["daraelle", "ariun-silverleaf", "captain-varek"].filter(id => initialCharacters.some(c => c.id === id));
     return defaults.length ? defaults : initialCharacters.slice(0, 2).map(c => c.id);
   });
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [worldName, setWorldName] = useState("Rimel & Almateira");
+  const [worldName, setWorldName] = useState("Rimel, Almateira & Ruinholds");
   const [comfortable, setComfortable] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -44,7 +45,7 @@ export default function FableApp({ initialCharacters, initialCollections }: { in
     c =>
       (!favoritesOnly || c.favorite) &&
       matchesCollectionFilter(c.collectionId, collectionId, collections) &&
-      `${c.name} ${c.ancestry} ${c.occupation} ${c.location} ${c.combatClass} ${c.traits.join(" ")}`
+      `${c.name} ${c.ancestry} ${c.occupation} ${c.location} ${c.combatClass} ${c.faith} ${c.traits.join(" ")}`
         .toLowerCase()
         .includes(query.toLowerCase())
   );
@@ -237,7 +238,7 @@ export default function FableApp({ initialCharacters, initialCollections }: { in
             (source.name.toLowerCase().includes("frontier") && c.id === "frontier")
         );
         if (!target) {
-          target = await request("/api/collections", "POST", { name: source.name, color: source.color, parentId: mappedParent }) as Collection;
+          target = await request("/api/collections", "POST", { name: source.name, color: source.color, parentId: mappedParent, kind: source.kind }) as Collection;
           availableCollections.push(target);
           const created = target;
           setCollections(previous => [...previous, created]);
@@ -247,7 +248,9 @@ export default function FableApp({ initialCharacters, initialCollections }: { in
       for (const profile of profiles) {
         if (collectionMapping.has(profile.collectionId)) profile.collectionId = collectionMapping.get(profile.collectionId)!;
         if (!availableCollections.some(c => c.id === profile.collectionId)) {
-          const byLocation = availableCollections.find(c => profile.location && c.name.toLowerCase() === profile.location.toLowerCase());
+          const byLocation = availableCollections.find(
+            c => profile.location && (c.name.toLowerCase() === profile.location.toLowerCase() || profile.location.toLowerCase().includes(c.name.toLowerCase()))
+          );
           profile.collectionId = byLocation?.id || (collectionId !== "all" ? collectionId : availableCollections[0]?.id || "");
         }
         const saved = await request("/api/characters", "POST", profile) as Character;
@@ -271,14 +274,48 @@ export default function FableApp({ initialCharacters, initialCollections }: { in
     }
   }
 
-  async function createCollection(name: string, color: string, parentId: string | null) {
+  async function createCollection(name: string, color: string, parentId: string | null, kind: LocationKind) {
     try {
-      const saved = await request("/api/collections", "POST", { name, color, parentId }) as Collection;
+      const saved = await request("/api/collections", "POST", { name, color, parentId, kind }) as Collection;
       setCollections(previous => [...previous, saved]);
       setToast({ text: `“${name}” is ready for its cast.` });
       return true;
     } catch (e) {
-      setToast({ text: e instanceof Error ? e.message : "Couldn’t create the location folder.", error: true });
+      setToast({ text: e instanceof Error ? e.message : "Couldn’t create the location.", error: true });
+      return false;
+    }
+  }
+
+  async function updateCollection(id: string, updates: Partial<Collection>) {
+    try {
+      const saved = await request(`/api/collections/${id}`, "PATCH", updates) as Collection;
+      setCollections(previous => previous.map(c => c.id === id ? saved : c));
+      setToast({ text: `Updated “${saved.name}”.` });
+      return true;
+    } catch (e) {
+      setToast({ text: e instanceof Error ? e.message : "Couldn’t update the location.", error: true });
+      return false;
+    }
+  }
+
+  async function deleteCollection(id: string) {
+    try {
+      const res = await request(`/api/collections/${id}`, "DELETE") as { ok: boolean; fallbackId: string };
+      setCollections(previous => {
+        const deleted = previous.find(c => c.id === id);
+        const fallbackParent = deleted?.parentId ?? null;
+        return previous
+          .filter(c => c.id !== id)
+          .map(c => c.parentId === id ? { ...c, parentId: fallbackParent, kind: (fallbackParent ? "city" : "region") as LocationKind } : c);
+      });
+      setCharacters(previous =>
+        previous.map(c => c.collectionId === id ? { ...c, collectionId: res.fallbackId || "" } : c)
+      );
+      if (collectionId === id) setCollectionId("all");
+      setToast({ text: "Location removed." });
+      return true;
+    } catch (e) {
+      setToast({ text: e instanceof Error ? e.message : "Couldn’t delete the location.", error: true });
       return false;
     }
   }
@@ -343,7 +380,7 @@ export default function FableApp({ initialCharacters, initialCollections }: { in
           <button className={!focused && !combatMode ? "active" : ""} onClick={() => { setCombatMode(false); setFocused(false); chooseCollection("all"); }}>
             <UsersRound size={17} /><span>Characters</span><span className="nav-count">{characters.length}</span>
           </button>
-          <button onClick={() => { setInitialParentId(""); setModal("collections"); setSidebarOpen(false); }}>
+          <button onClick={() => { setInitialParentId(""); setInitialKind("region"); setModal("collections"); setSidebarOpen(false); }}>
             <FolderOpen size={17} /><span>Locations & folders</span>
           </button>
           <button className={combatMode ? "active" : ""} onClick={() => { setCombatMode(!combatMode); setFocused(false); setSidebarOpen(false); }}>
@@ -355,61 +392,82 @@ export default function FableApp({ initialCharacters, initialCollections }: { in
         </nav>
         <div className="sidebar-rule" />
         <div className="sidebar-section-label collection-label">
-          LOCATIONS & SUBLOCATIONS
-          <button aria-label="New location or folder" title="New location or sublocation" onClick={() => { setInitialParentId(""); setModal("collections"); }}>
+          REGIONS, CITIES & PLACES
+          <button aria-label="Manage locations" title="Manage regions, cities, and sublocations" onClick={() => { setInitialParentId(""); setInitialKind("region"); setModal("collections"); }}>
             <Plus size={13} />
           </button>
         </div>
         <nav className="collections-nav" aria-label="Character collections">
-          {rootCollections.map(root => {
-            const subs = collections.filter(c => c.parentId === root.id);
-            const isCollapsed = collapsedFolders[root.id] ?? false;
-            const rootCount = characters.filter(c => matchesCollectionFilter(c.collectionId, root.id, collections)).length;
+          {rootCollections.map(region => {
+            const children = collections.filter(c => c.parentId === region.id);
+            const isCollapsed = collapsedFolders[region.id] ?? false;
+            const regionCount = characters.filter(c => matchesCollectionFilter(c.collectionId, region.id, collections)).length;
             return (
-              <div key={root.id} className="sidebar-folder-group">
-                <div className={`sidebar-folder-row ${collectionId === root.id ? "active" : ""}`}>
-                  {subs.length > 0 ? (
+              <div key={region.id} className="sidebar-folder-group">
+                <div className={`sidebar-folder-row ${collectionId === region.id ? "active" : ""}`}>
+                  {children.length > 0 ? (
                     <button
                       type="button"
                       className="folder-collapse-btn"
-                      aria-label={isCollapsed ? `Expand ${root.name}` : `Collapse ${root.name}`}
-                      onClick={() => setCollapsedFolders(prev => ({ ...prev, [root.id]: !isCollapsed }))}
+                      aria-label={isCollapsed ? `Expand ${region.name}` : `Collapse ${region.name}`}
+                      onClick={() => setCollapsedFolders(prev => ({ ...prev, [region.id]: !isCollapsed }))}
                     >
                       {isCollapsed ? <ChevronRight size={11} /> : <ChevronDown size={11} />}
                     </button>
                   ) : (
                     <span className="folder-collapse-spacer" />
                   )}
-                  <button type="button" className="folder-select-btn" onClick={() => chooseCollection(root.id)}>
-                    <span className="collection-dot" style={{ background: root.color }} />
-                    <span>{root.name}</span>
-                    <small>{rootCount}</small>
+                  <button type="button" className="folder-select-btn" onClick={() => chooseCollection(region.id)}>
+                    <span className="collection-dot" style={{ background: region.color }} />
+                    <span>{region.name}</span>
+                    <small>{regionCount}</small>
                   </button>
                   <button
                     type="button"
                     className="folder-add-sub-btn"
-                    title={`Add sublocation in ${root.name}`}
-                    aria-label={`Add sublocation in ${root.name}`}
-                    onClick={() => { setInitialParentId(root.id); setModal("collections"); }}
+                    title={`Add city or place in ${region.name}`}
+                    aria-label={`Add city or place in ${region.name}`}
+                    onClick={() => { setInitialParentId(region.id); setInitialKind("city"); setModal("collections"); }}
                   >
                     <Plus size={11} />
                   </button>
                 </div>
-                {!isCollapsed && subs.length > 0 && (
+                {!isCollapsed && children.length > 0 && (
                   <div className="sidebar-subfolders">
-                    {subs.map(sub => {
-                      const subCount = characters.filter(c => c.collectionId === sub.id).length;
+                    {children.map(child => {
+                      const subPlaces = collections.filter(c => c.parentId === child.id);
+                      const childCount = characters.filter(c => matchesCollectionFilter(c.collectionId, child.id, collections)).length;
                       return (
-                        <button
-                          key={sub.id}
-                          type="button"
-                          className={`sidebar-subfolder-btn ${collectionId === sub.id ? "active" : ""}`}
-                          onClick={() => chooseCollection(sub.id)}
-                        >
-                          <CornerDownRight size={11} />
-                          <span>{sub.name}</span>
-                          <small>{subCount}</small>
-                        </button>
+                        <div key={child.id} className="sidebar-city-branch">
+                          <button
+                            type="button"
+                            className={`sidebar-subfolder-btn ${collectionId === child.id ? "active" : ""}`}
+                            onClick={() => chooseCollection(child.id)}
+                          >
+                            {child.kind === "city" ? <Building2 size={10} /> : <CornerDownRight size={11} />}
+                            <span>{child.name}</span>
+                            <small>{childCount}</small>
+                          </button>
+                          {subPlaces.length > 0 && (
+                            <div className="sidebar-grandchild-list">
+                              {subPlaces.map(place => {
+                                const placeCount = characters.filter(c => c.collectionId === place.id).length;
+                                return (
+                                  <button
+                                    key={place.id}
+                                    type="button"
+                                    className={`sidebar-subfolder-btn sidebar-place-btn ${collectionId === place.id ? "active" : ""}`}
+                                    onClick={() => chooseCollection(place.id)}
+                                  >
+                                    <CornerDownRight size={10} />
+                                    <span>{place.name}</span>
+                                    <small>{placeCount}</small>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
                       );
                     })}
                   </div>
@@ -417,8 +475,8 @@ export default function FableApp({ initialCharacters, initialCollections }: { in
               </div>
             );
           })}
-          <button className="add-collection" onClick={() => { setInitialParentId(""); setModal("collections"); }}>
-            <Plus size={13} /><span>New location or sublocation</span>
+          <button className="add-collection" onClick={() => { setInitialParentId(""); setInitialKind("region"); setModal("collections"); }}>
+            <Plus size={13} /><span>Manage regions, cities & places</span>
           </button>
         </nav>
         <div className="sidebar-bottom">
@@ -501,7 +559,7 @@ export default function FableApp({ initialCharacters, initialCollections }: { in
               <div className="page-heading">
                 <div>
                   <div className="page-title"><h1>Character library</h1><span>{characters.length} characters</span></div>
-                  <p>A cast worth remembering. Indexed by location and ready when the story calls.</p>
+                  <p>A cast worth remembering. Indexed by region, city, and place.</p>
                 </div>
                 <div className="page-actions">
                   <button className="button button-white" onClick={() => setCombatMode(true)}>
@@ -523,7 +581,7 @@ export default function FableApp({ initialCharacters, initialCollections }: { in
                       All characters<span>{characters.filter(c => matchesCollectionFilter(c.collectionId, collectionId, collections)).length}</span>
                     </button>
                     <button className={favoritesOnly ? "active" : ""} onClick={() => { setFavoritesOnly(true); const first = characters.find(c => c.favorite && matchesCollectionFilter(c.collectionId, collectionId, collections)); if (first && !selected?.favorite) selectCharacter(first.id); }}>
-                      <Star size={12} />Favorites<span>{favoriteCount}</span>
+                      <Bookmark size={11} />Favorites<span>{favoriteCount}</span>
                     </button>
                   </div>
                   {collectionId !== "all" && (
@@ -540,31 +598,39 @@ export default function FableApp({ initialCharacters, initialCollections }: { in
                     </div>
                   </div>
                   <div className="character-list">
-                    {filtered.map(c => (
-                      <button key={c.id} className={`character-list-item ${selected?.id === c.id ? "selected" : ""}`} onClick={() => selectCharacter(c.id)} aria-current={selected?.id === c.id ? "true" : undefined}>
-                        {c.portrait ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={c.portrait} alt="" className="list-portrait" />
-                        ) : null}
-                        <span className="list-character-info">
-                          <span className="list-character-name">
-                            {c.name}
-                            <span className="list-item-badges">
-                              {combatantIds.includes(c.id) && <Swords size={10} className="in-combat-star" />}
-                              {c.favorite && <Star size={10} fill="currentColor" />}
+                    {filtered.map(c => {
+                      const cLegend = formatLegendBadge(c.legendStars);
+                      return (
+                        <button key={c.id} className={`character-list-item ${selected?.id === c.id ? "selected" : ""}`} onClick={() => selectCharacter(c.id)} aria-current={selected?.id === c.id ? "true" : undefined}>
+                          {c.portrait ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={c.portrait} alt="" className="list-portrait" />
+                          ) : null}
+                          <span className="list-character-info">
+                            <span className="list-character-name">
+                              <span className="list-name-text">{c.name}</span>
+                              <span className="list-item-badges">
+                                {cLegend && (
+                                  <span className={`list-legend-chip ${cLegend.isLegend ? "is-legend" : ""}`} title={cLegend.isLegend ? `${c.legendStars}/5 Legend` : `${c.legendStars}/5 stars`}>
+                                    {cLegend.starsText}{cLegend.isLegend ? " Legend" : ""}
+                                  </span>
+                                )}
+                                {combatantIds.includes(c.id) && <Swords size={10} className="in-combat-star" />}
+                                {c.favorite && <Bookmark size={10} fill="currentColor" />}
+                              </span>
                             </span>
+                            <span className="list-character-job">{c.occupation}</span>
+                            <span className="list-character-location">{c.ancestry}<span>·</span>{getCollectionPath(c.collectionId, collections)}</span>
                           </span>
-                          <span className="list-character-job">{c.occupation}</span>
-                          <span className="list-character-location">{c.ancestry}<span>·</span>{getCollectionPath(c.collectionId, collections)}</span>
-                        </span>
-                        {selected?.id === c.id && <span className="selected-indicator" />}
-                      </button>
-                    ))}
+                          {selected?.id === c.id && <span className="selected-indicator" />}
+                        </button>
+                      );
+                    })}
                     {!filtered.length && (
                       <div className="library-empty">
                         <Search size={23} />
                         <h3>{favoritesOnly ? "Your favorites live here" : "No familiar faces"}</h3>
-                        <p>{favoritesOnly ? "Star a character to keep them close." : "Try another name, place, or occupation."}</p>
+                        <p>{favoritesOnly ? "Bookmark a character to keep them close." : "Try another name, place, or occupation."}</p>
                         <button onClick={() => { setQuery(""); setFavoritesOnly(false); setCollectionId("all"); }}>Show all characters<ArrowRight size={12} /></button>
                       </div>
                     )}
@@ -612,7 +678,19 @@ export default function FableApp({ initialCharacters, initialCollections }: { in
       {(modal === "new" || modal === "edit") && <CharacterEditor key={modal === "edit" ? selected?.id : "new"} character={modal === "edit" ? selected : undefined} collections={collections} onSave={saveCharacter} onClose={() => setModal(null)} />}
       {modal === "import" && <ImportDialog onImport={importCharacters} onClose={() => setModal(null)} />}
       {modal === "export" && selected && <ExportDialog character={selected} onClose={() => setModal(null)} />}
-      {modal === "collections" && <CollectionsDialog collections={collections} characters={characters} initialParentId={initialParentId} onClose={() => setModal(null)} onSelect={chooseCollection} onCreate={createCollection} />}
+      {modal === "collections" && (
+        <CollectionsDialog
+          collections={collections}
+          characters={characters}
+          initialParentId={initialParentId}
+          initialKind={initialKind}
+          onClose={() => setModal(null)}
+          onSelect={chooseCollection}
+          onCreate={createCollection}
+          onUpdate={updateCollection}
+          onDelete={deleteCollection}
+        />
+      )}
       {modal === "delete" && selected && (
         <Modal title="Close this character’s chapter?" eyebrow="DELETE CHARACTER" onClose={() => setModal(null)}>
           <div className="modal-body">
@@ -634,7 +712,7 @@ export default function FableApp({ initialCharacters, initialCollections }: { in
           </footer>
         </Modal>
       )}
-      {modal === "help" && <Modal title="A little less prep. A little more play." eyebrow="WELCOME TO FABLE" onClose={() => setModal(null)}><div className="modal-body help-body"><p className="modal-description">Fable keeps the whole person, but brings just the essentials to the table.</p><div className="help-feature"><BookOpen size={19} /><div><h3>One window. One memorable character.</h3><p>The session sheet gives you a voice, a goal, a tell, and quick combat stats. Open the full profile whenever you need the deeper story.</p></div></div><div className="help-feature"><Swords size={19} /><div><h3>Combat mode when the blades come out.</h3><p>Pick which NPCs are fighting, roll initiative, track HP and conditions, and switch between combatants with spells, sidearms, and combat traits in view.</p></div></div><div className="help-feature"><ArrowDownToLine size={19} /><div><h3>Obsidian for GM lore, Kanka for players.</h3><p>Export full Markdown to Obsidian, or copy strictly player-facing rich text into Kanka with secrets, combat stats, and GM notes automatically stripped.</p></div></div><div className="keyboard-shortcuts"><h3><Keyboard size={15} />A few useful shortcuts</h3><div><span>Find a character</span><kbd>⌘ / Ctrl + K</kbd></div><div><span>Exit session or combat mode / close a dialog</span><kbd>Esc</kbd></div><div><span>Previous / next character in session or combat mode</span><span><kbd>[</kbd> <kbd>]</kbd></span></div></div></div><footer className="modal-footer"><span className="subtle-text"><Feather size={13} />People make the story.</span><button className="button button-primary" onClick={() => setModal(null)}>Back to my world<ArrowRight size={14} /></button></footer></Modal>}
+      {modal === "help" && <Modal title="A little less prep. A little more play." eyebrow="WELCOME TO FABLE" onClose={() => setModal(null)}><div className="modal-body help-body"><p className="modal-description">Fable keeps the whole person, but brings just the essentials to the table.</p><div className="help-feature"><BookOpen size={19} /><div><h3>One window. One memorable character.</h3><p>The session sheet gives you a voice, a goal, a tell, their primary deity, and quick combat stats. Open the full profile whenever you need the deeper story.</p></div></div><div className="help-feature"><Swords size={19} /><div><h3>Monster Manual stat blocks & spell slots.</h3><p>In Combat mode, type damage directly (or prefix with + to heal), track spell slots by level, and click any spell or skill to see what it does.</p></div></div><div className="help-feature"><ArrowDownToLine size={19} /><div><h3>Obsidian for GM lore, Kanka for players.</h3><p>Export full Markdown to Obsidian, or copy strictly player-facing rich text into Kanka with secrets, combat stats, and GM notes automatically stripped.</p></div></div><div className="keyboard-shortcuts"><h3><Keyboard size={15} />A few useful shortcuts</h3><div><span>Find a character</span><kbd>⌘ / Ctrl + K</kbd></div><div><span>Exit session or combat mode / close a dialog</span><kbd>Esc</kbd></div><div><span>Previous / next character in session or combat mode</span><span><kbd>[</kbd> <kbd>]</kbd></span></div></div></div><footer className="modal-footer"><span className="subtle-text"><Feather size={13} />People make the story.</span><button className="button button-primary" onClick={() => setModal(null)}>Back to my world<ArrowRight size={14} /></button></footer></Modal>}
       {modal === "settings" && <Modal title="Your little corner of the world" eyebrow="WORKSPACE SETTINGS" onClose={() => setModal(null)}><form onSubmit={e => { e.preventDefault(); try { localStorage.setItem("fable-preferences", JSON.stringify({ worldName, comfortable, darkMode })); } catch { /* The preferences remain available in memory. */ } setModal(null); setToast({ text: "Your workspace preferences are saved." }); }}><div className="modal-body"><label className="form-field"><span>Your world’s name</span><input value={worldName} onChange={e => setWorldName(e.target.value)} maxLength={45} required /></label><div className="settings-density"><span className="input-label">Appearance theme</span><div className="segmented-control"><button type="button" className={!darkMode ? "active" : ""} onClick={() => setDarkMode(false)}>Daylight parchment</button><button type="button" className={darkMode ? "active" : ""} onClick={() => setDarkMode(true)}>Night mode</button></div></div><div className="settings-density"><span className="input-label">Sheet reading size</span><div className="segmented-control"><button type="button" className={!comfortable ? "active" : ""} onClick={() => setComfortable(false)}>Compact</button><button type="button" className={comfortable ? "active" : ""} onClick={() => setComfortable(true)}>Comfortable</button></div><p>Compact keeps the session essentials together. Comfortable gives the text a little more breathing room.</p></div><div className="settings-backup"><ShieldCheck size={24} /><div><h3>Your world is worth keeping.</h3><p>Characters and notes are saved in this workspace’s database. Download a backup before moving to a new workspace.</p><button type="button" className="button button-small button-white" onClick={() => { downloadFile("fable-workspace.json", JSON.stringify({ version: 1, characters, collections }, null, 2), "application/json"); setToast({ text: "Your complete workspace backup is downloading." }); }}><ArrowDownToLine size={13} />Back up workspace<span className="backup-count">{characters.length} NPCs</span></button></div></div></div><footer className="modal-footer"><span className="subtle-text">Preferences are saved on this device.</span><button className="button button-primary" type="submit"><Check size={14} />Save preferences</button></footer></form></Modal>}
       {toast && <div className={`toast ${toast.error ? "toast-error" : ""}`} role={toast.error ? "alert" : "status"}>{toast.error ? <CircleHelp size={17} /> : <CircleCheck size={17} />}<span>{toast.text}</span><button aria-label="Dismiss notification" onClick={() => setToast(null)}><X size={14} /></button></div>}
     </div>

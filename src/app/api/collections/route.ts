@@ -11,15 +11,19 @@ export async function POST(request: Request) {
       return Response.json({ error: "Give your location or folder a name (up to 80 characters)." }, { status: 400 });
     }
     const parentId = typeof body.parentId === "string" && body.parentId.trim() ? body.parentId.trim() : null;
+    let defaultKind = parentId ? "city" : "region";
     if (parentId) {
       const [parent] = await db.select().from(npcCollections).where(eq(npcCollections.id, parentId));
       if (!parent) return Response.json({ error: "Parent location not found." }, { status: 400 });
+      if (parent.kind === "city" || parent.parentId) defaultKind = "sublocation";
     }
+    const kind = ["region", "city", "sublocation"].includes(body.kind) ? body.kind : defaultKind;
     const collection = {
       id: crypto.randomUUID(),
       name: body.name.trim(),
       color: /^#[a-f0-9]{6}$/i.test(body.color) ? body.color : "#a6b48c",
-      parentId,
+      parentId: kind === "region" ? null : parentId,
+      kind,
     };
     await db.insert(npcCollections).values(collection);
     return Response.json(collection, { status: 201 });
