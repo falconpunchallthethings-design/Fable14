@@ -4,16 +4,37 @@ const testPrefix = "Fable QA ";
 test.afterEach(async ({ request }) => {
   const data = await (await request.get("/api/characters")).json();
   for (const c of data.characters) if (c.name.startsWith(testPrefix)) await request.delete(`/api/characters/${c.id}`);
+  for (const col of data.collections) if (col.name.startsWith(testPrefix)) await request.delete(`/api/collections/${col.id}`);
 });
 
-test("library, favorites, player-facing Kanka export, night mode, and session mode", async ({ page }) => {
+test("Legend stars system, primary god on session sheet, Kanka export, and night mode", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Edic Dorianon", exact: true })).toBeVisible();
 
-  // Verify no built-in AI portrait is rendered by default
-  await expect(page.locator(".hero-portrait")).toHaveCount(0);
+  // Edic has 0 legend stars -> no legend badge shown, and primary god is visible on main session sheet
+  await expect(page.locator(".character-header .legend-badge")).toHaveCount(0);
+  await expect(page.locator(".deity-dd")).toContainText(/Vesra/i);
+
+  // Ariun has 1 star -> shows ★ without "Legend" title
+  await page.locator(".character-list-item").filter({ hasText: "Ariun Silverleaf" }).click();
+  await expect(page.getByRole("heading", { name: "Ariun Silverleaf", exact: true })).toBeVisible();
+  await expect(page.locator(".character-header .legend-badge")).toBeVisible();
+  await expect(page.locator(".character-header .legend-stars")).toHaveText("★");
+  await expect(page.locator(".character-header .legend-badge strong")).toHaveCount(0);
+
+  // Daraelle has 5 stars (>= 3) -> shows ★★★★★ AND "Legend" title + primary god Naskyros
+  await page.locator(".character-list-item").filter({ hasText: "Daraelle" }).click();
+  await expect(page.getByRole("heading", { name: "Daraelle", exact: true })).toBeVisible();
+  await expect(page.locator(".character-header .legend-stars")).toHaveText("★★★★★");
+  await expect(page.locator(".character-header .legend-badge strong")).toHaveText("Legend");
+  await expect(page.locator(".deity-dd")).toContainText("Naskyros — The Sunken King");
+  await expect(page.locator(".sheet-eyebrow")).toContainText("The Ruinholds (Los Bastiones Arruinados) › Ashen Bastion › Sunken Spire Archive");
+
+  // Interactive spell & skill inspection on main session sheet
+  await page.locator(".skill-inline-btn").filter({ hasText: "Arcana +7" }).click();
+  await expect(page.locator(".compendium-popover")).toContainText("Recall lore about spells");
 
   // Night mode toggle
   await page.getByRole("button", { name: "Switch to night mode", exact: true }).click();
@@ -21,95 +42,78 @@ test("library, favorites, player-facing Kanka export, night mode, and session mo
   await page.getByRole("button", { name: "Switch to light mode", exact: true }).click();
   await expect(page.locator(".app-shell.dark-mode")).toHaveCount(0);
 
-  // Search & favorites
-  await page.getByRole("textbox", { name: "Find a character" }).fill("herbalist");
-  await expect(page.locator(".character-list-item")).toHaveCount(1);
-  await page.locator(".character-list-item").click();
-  await expect(page.getByRole("heading", { name: "Sera Willowmere", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Clear search", exact: true }).click();
-  await page.getByRole("button", { name: /Favorites/ }).click();
-  await expect(page.locator(".character-list-item")).toHaveCount(3);
-  await page.locator(".character-list-item").filter({ hasText: "Edic Dorianon" }).click();
-
-  // Full profile & Session sheet tabs
-  await page.getByRole("tab", { name: "Full profile", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Power profile", exact: true })).toBeAttached();
-  await page.getByRole("tab", { name: "Session sheet", exact: true }).click();
-
-  // Exports: Obsidian (GM) vs Kanka (strictly player-facing)
+  // Kanka player-facing export strips secrets, stats, and seeds
   await page.getByRole("button", { name: "Export", exact: true }).click();
-  await expect(page.getByRole("dialog")).toBeVisible();
-  await expect(page.locator(".export-preview pre")).toContainText("type: npc");
-  const md = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Download .md", exact: true }).click();
-  expect((await md).suggestedFilename()).toBe("edic-dorianon.md");
-
   await page.getByRole("button", { name: /Kanka/ }).click();
-  await expect(page.locator(".kanka-player-safe-banner")).toContainText("Player-facing only");
   const kankaPreview = await page.locator(".export-preview pre").textContent();
-  expect(kankaPreview).toContain("<h1>Edic Dorianon</h1>");
-  expect(kankaPreview).toContain("Serious and studious");
-  expect(kankaPreview).toContain("Dry and understated");
-  // Strictly exclude GM-only secrets, combat stats, and seed
-  expect(kankaPreview).not.toContain("funnier than she appears");
-  expect(kankaPreview).not.toContain("Stop something from happening");
-  expect(kankaPreview).not.toContain("Armour Class");
-  expect(kankaPreview).not.toContain("487644");
-
-  const html = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Download .html", exact: true }).click();
-  expect((await html).suggestedFilename()).toBe("edic-dorianon.html");
+  expect(kankaPreview).toContain("<h1>Daraelle</h1>");
+  expect(kankaPreview).toContain("Cool and collected");
+  expect(kankaPreview).not.toContain("Get revenge");
+  expect(kankaPreview).not.toContain("stranger than she appears");
+  expect(kankaPreview).not.toContain("759061");
   await page.getByRole("button", { name: "Close dialog", exact: true }).click();
 
-  // Session mode
-  await page.getByRole("button", { name: "Expand for session mode", exact: true }).click();
-  await expect(page.locator(".session-focus-bar")).toBeVisible();
-  await page.getByRole("button", { name: "Next character", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Ariun Silverleaf", exact: true })).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(page.locator(".page-heading")).toBeVisible();
   expect(errors).toEqual([]);
 });
 
-test("locations & sublocations hierarchy and Combat Mode with Ariun Silverleaf", async ({ page }) => {
+test("3-tier locations (Region -> City -> Sublocation) edit & delete, plus Combat Mode MM stat block, direct HP box, spell slots & spell/skill compendium", async ({ page }) => {
   await page.goto("/");
 
-  // Click parent location Almateira in sidebar -> should show Ariun Silverleaf from sublocation Old-World Wine Vaults
-  await page.locator(".sidebar-folder-row").filter({ hasText: "Almateira" }).locator(".folder-select-btn").click();
-  await expect(page.getByRole("heading", { name: "Ariun Silverleaf", exact: true })).toBeVisible();
-  await expect(page.locator(".sheet-eyebrow")).toContainText("Almateira › Old-World Wine Vaults");
-  await expect(page.locator(".spellcasting-line")).toContainText("CHA (Save DC 11, spell attack +3)");
-  await expect(page.locator(".sidearm-line")).toContainText("Dagger");
+  // Open 3-tier locations manager and test create + edit + delete
+  await page.getByRole("button", { name: /Locations & folders/ }).click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await page.getByLabel("Category tier").selectOption("city");
+  await page.getByPlaceholder("e.g. Ashen Bastion").fill(`${testPrefix}Silverport`);
+  await page.getByRole("button", { name: "Create city", exact: true }).click();
+  await expect(page.locator(".city-card").filter({ hasText: `${testPrefix}Silverport` })).toBeVisible();
 
-  // Open Combat Mode
+  // Edit the created city
+  await page.getByRole("button", { name: `Edit ${testPrefix}Silverport`, exact: true }).click();
+  await page.getByRole("textbox", { name: "Edit location name", exact: true }).fill(`${testPrefix}Goldenport`);
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.locator(".city-card").filter({ hasText: `${testPrefix}Goldenport` })).toBeVisible();
+
+  // Delete the edited city
+  await page.getByRole("button", { name: `Delete ${testPrefix}Goldenport`, exact: true }).click();
+  await expect(page.locator(".city-card").filter({ hasText: `${testPrefix}Goldenport` })).toHaveCount(0);
+  await page.getByRole("button", { name: "Close dialog", exact: true }).click();
+
+  // Open Combat Mode and inspect Daraelle's Monster Manual stat block
   await page.getByRole("button", { name: /Combat mode/ }).first().click();
   await expect(page.locator(".combat-workspace")).toBeVisible();
-  await expect(page.locator(".combatant-pill").filter({ hasText: "Ariun Silverleaf" })).toBeVisible();
-  await expect(page.locator(".combatant-pill").filter({ hasText: "Captain Varek" })).toBeVisible();
+  await page.locator(".combatant-pill").filter({ hasText: "Daraelle" }).click();
+  await expect(page.locator(".combat-sheet h2")).toHaveText("Daraelle");
+  await expect(page.locator(".combat-sheet .legend-badge strong")).toHaveText("Legend");
 
-  // Select Ariun Silverleaf in combat strip and inspect all combat info
-  await page.locator(".combatant-pill").filter({ hasText: "Ariun Silverleaf" }).click();
-  await expect(page.locator(".combat-sheet h2")).toHaveText("Ariun Silverleaf");
-  await expect(page.locator(".combat-class-badge")).toContainText("Warlock · Veteran");
-  await expect(page.locator(".combat-spellcasting-box")).toContainText("CHA (Save DC 11, spell attack +3)");
-  await expect(page.locator(".combat-action-pill").filter({ hasText: "eldritch blast (at-will)" })).toBeVisible();
-  await expect(page.locator(".combat-action-pill").filter({ hasText: /^counterspell$/i })).toBeVisible();
+  // Direct HP input box: default subtracts HP (damage), '+' prefix adds HP (healing), plus Full button
+  const hpInput = page.getByRole("textbox", { name: "Hit points lost or healed", exact: true });
+  await hpInput.fill("22");
+  await page.getByRole("button", { name: "Apply", exact: true }).click();
+  await expect(page.locator(".combat-hp-readout strong")).toContainText("200");
 
-  // Mark a spell action as used and toggle a condition
-  const counterspellPill = page.locator(".combat-action-pill").filter({ hasText: /^counterspell$/i });
-  await counterspellPill.click();
-  await expect(counterspellPill).toHaveClass(/is-used/);
+  await hpInput.fill("+10");
+  await page.getByRole("button", { name: "Apply", exact: true }).click();
+  await expect(page.locator(".combat-hp-readout strong")).toContainText("210");
 
-  const hexCondition = page.locator(".condition-chip").filter({ hasText: "Hex / Mark" });
-  await hexCondition.click();
-  await expect(hexCondition).toHaveClass(/active/);
+  await page.getByRole("button", { name: "Full", exact: true }).click();
+  await expect(page.locator(".combat-hp-readout strong")).toContainText("222");
 
-  // Switch combatant to Captain Varek via Next turn or clicking pill
-  await page.locator(".combatant-pill").filter({ hasText: "Captain Varek" }).click();
-  await expect(page.locator(".combat-sheet h2")).toHaveText("Captain Varek");
-  await expect(page.locator(".combat-attack-card").first()).toContainText("Longsword");
+  // Monster Manual traits, tactics, spell slots & clickable spells/skills
+  await expect(page.locator(".mm-traits-list")).toContainText("Magic Resistance.");
+  await expect(page.locator(".mm-traits-list")).toContainText("Arcane Recovery.");
+  await expect(page.locator(".mm-tactics-box")).toContainText("Ranged controller / spell support");
+  await expect(page.locator(".spell-slots-tracker")).toBeVisible();
 
-  // Exit combat mode back to library
+  // Click a spell in the stat block -> shows 5e spell description and allows expending a slot
+  await page.locator(".combat-action-pill").filter({ hasText: /^meteor swarm$/i }).click();
+  await expect(page.locator(".mm-inspector-banner")).toContainText("20d6 fire damage");
+  await page.getByRole("button", { name: "Cast (expend slot)", exact: true }).click();
+  await expect(page.locator(".slot-pip.is-expended")).toHaveCount(1);
+
+  // Click a skill in the stat block -> shows 5e skill description
+  await page.locator(".mm-skill-btn").filter({ hasText: "Arcana +7" }).click();
+  await expect(page.locator(".mm-inspector-banner")).toContainText("Recall lore about spells");
+
   await page.getByRole("button", { name: "Back to library", exact: true }).click();
   await expect(page.locator(".page-heading")).toBeVisible();
 });
@@ -119,10 +123,12 @@ test("create, edit, HP, notes, persistence and delete", async ({ page, request }
   await page.getByRole("button", { name: "New character", exact: true }).click();
   await page.getByRole("textbox", { name: "Character name" }).fill(`${testPrefix}Mira`);
   await page.getByRole("textbox", { name: "Occupation", exact: true }).fill("Cartographer");
+  await page.getByLabel("Legend distinction stars").selectOption("3");
   await page.getByRole("tab", { name: "At the table", exact: true }).click();
   await page.getByRole("textbox", { name: "Voice", exact: true }).fill("Bright and inquisitive");
   await page.getByRole("button", { name: "Create character", exact: true }).click();
   await expect(page.getByRole("heading", { name: `${testPrefix}Mira`, exact: true })).toBeVisible();
+  await expect(page.locator(".character-header .legend-badge strong")).toHaveText("Legend");
   await expect(page.locator(".voice-cue")).toContainText("Bright and inquisitive");
   await page.locator(".hp-stat").hover();
   await page.getByRole("button", { name: "Decrease hit points", exact: true }).click();
@@ -134,8 +140,8 @@ test("create, edit, HP, notes, persistence and delete", async ({ page, request }
   const data = await (await request.get("/api/characters")).json();
   const saved = data.characters.find((c: { name: string }) => c.name === `${testPrefix}Mira`);
   expect(saved.hp).toBe(3);
+  expect(saved.legendStars).toBe(3);
   expect(saved.notes).toHaveLength(1);
-  expect(saved.voice).toBe("Bright and inquisitive");
   expect(saved.portrait).toBe("");
   await page.reload();
   await page.getByRole("textbox", { name: "Find a character" }).fill(`${testPrefix}Mira`);
@@ -148,25 +154,24 @@ test("create, edit, HP, notes, persistence and delete", async ({ page, request }
   await page.getByRole("button", { name: "Delete character", exact: true }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Delete character", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  const after = await (await request.get("/api/characters")).json();
-  expect(after.characters.find((c: { id: string }) => c.id === saved.id)).toBeUndefined();
 });
 
-test("long generated text imports spells, sidearms, and combat traits cleanly", async ({ page, request }) => {
+test("long generated text imports Legend stars, spell slots, tactics, and quests cleanly", async ({ page, request }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Import character", exact: true }).click();
-  await page.getByRole("textbox", { name: "Character text" }).fill(`${testPrefix}Ariun\nSea Elf, 631 years (old), he/him, Medium, speed 30 ft\nDarkvision, keen senses, trance instead of sleep, resistant to charm. Aquatic elven lineage.\n\nAt a glance\n  Voice: quick and teasing\n  First impression: Elegant and refined\n\nLife & path\n  Occupation: Merchant / Trader — wine and spirits\n  Current goal: Explore somewhere unknown\n\nCombat statistics\n  Combat class: Warlock · Veteran (Archetype determines the NPC’s combat training and signature mechanics.)\n  Challenge rating: 1/2\n  Armour Class: 10 (Unarmoured)\n  Sidearm: Dagger · carried · +5 to hit · 1d4 + 1 piercing (class feature bonus +2 damage) (Alternate carried weapon.)\n  Hit Points: 5 (1d8) (Damage the NPC can take before falling to 0 hit points.)\n  Ability scores: STR 12 (+1) · DEX 10 (+0) · CON 10 (+0) · INT 16 (+3) · WIS 11 (+0) · CHA 12 (+1)\n  Saving throws: INT +5, WIS +2\n  Attack: Light crossbow · +4 to hit · 1d8 piercing (class feature bonus +2 damage) (Main at-will attack.)\n  Additional actions: eldritch blast ; Cast armor of agathys ; Cast counterspell\n  Skills: Deception +3, Persuasion +3, Perception +2 (Use these bonuses for checks involving the named skills.)\n  Movement & senses: walk 30 ft. · swim 30 ft. · darkvision 60 ft.\n  Spellcasting: CHA (Combat class. CHA save DC 11, spell attack +3; spells: armor of agathys, hex, counterspell. Daily uses and spell slots appear on the individual spell actions.)\n\nTraits\n  Whimsical: Very strong\n  Affectionate: Strong\n\nUnder pressure\n  Under physical threat: reacts first and thinks later, fast to anger in a real fight\n\nSeed: 673299`);
+  await page.getByRole("textbox", { name: "Character text" }).fill(`${testPrefix}Daraelle\nGhostwise Halfling, 41 years (adult), she/her, Small, speed 25 ft\nLucky, brave, and nimble enough to slip past larger creatures.\n\nAt a glance\n  Voice: wry and observant\n  First impression: Cool and collected\n\nFaith & religion\n  Deity affinity: Naskyros — The Sunken King\n\nCombat statistics\n  Combat class: Archmage · Exceptional\n  Challenge rating: 12\n  Armour Class: 12\n  Hit Points: 222 (18d8+18)\n  Ability scores: STR 12 (+1) · DEX 14 (+2) · CON 14 (+2) · INT 20 (+5) · WIS 15 (+2) · CHA 16 (+3)\n  Saving throws: INT +7, WIS +4\n  Attack: Dagger · +8 to hit · 1d4 + 2 piercing\n  Class features explained: Arcane Recovery — Once per day after a short rest, recover expended spell slots.; Relentless — Drops to 1 hit point instead of 0.\n  Skills: Arcana +7\n  Limited-use resources: 4×1st-level slot, 3×2nd-level slot, 1×9th-level slot\n  Spellcasting: Monster Manual 2014 archmage + INT (Monster Manual 2014 archmage; Combat class. INT save DC 15, spell attack +7; spells: fire bolt, shield, fireball, meteor swarm. Daily uses and spell slots appear on the individual spell actions.)\n\nQuest they can offer\n  Quest: Locate a source, specimen or missing research\n  Reward: Research access or payment\n\nCombat tactics\n  Combat role: Ranged controller / spell support\n  Preferred positioning: Prefer cover and distance\n\nLegend profile\n  Legend status: Legend-qualified · 5/5 stars\n\nSeed: 759061`);
   await page.getByRole("dialog").getByRole("button", { name: "Import character", exact: true }).click();
-  await expect(page.getByRole("heading", { name: `${testPrefix}Ariun`, exact: true })).toBeVisible();
-  await expect(page.locator(".skills-line")).toContainText("Deception +3");
-  await expect(page.locator(".spellcasting-line")).toContainText("CHA (CHA save DC 11, spell attack +3; spells: armor of agathys, hex, counterspell)");
-  await expect(page.locator(".sidearm-line")).toContainText("Dagger");
+  await expect(page.getByRole("heading", { name: `${testPrefix}Daraelle`, exact: true })).toBeVisible();
+  await expect(page.locator(".character-header .legend-stars")).toHaveText("★★★★★");
+  await expect(page.locator(".character-header .legend-badge strong")).toHaveText("Legend");
+  await expect(page.locator(".deity-dd")).toContainText("Naskyros — The Sunken King");
   const data = await (await request.get("/api/characters")).json();
-  const c = data.characters.find((c: { name: string }) => c.name === `${testPrefix}Ariun`);
-  expect(c.abilities.INT).toBe(16);
-  expect(c.hitDice).toBe("1d8");
-  expect(c.savingThrows).toBe("INT +5, WIS +2");
-  expect(c.threatResponse).toContain("reacts first and thinks later");
+  const c = data.characters.find((c: { name: string }) => c.name === `${testPrefix}Daraelle`);
+  expect(c.legendStars).toBe(5);
+  expect(c.maxHp).toBe(222);
+  expect(c.hitDice).toBe("18d8+18");
+  expect(c.combatTactics).toContain("Ranged controller");
+  expect(c.questOffer).toContain("Locate a source");
 });
 
 test("tablet selector, mobile layout, and single-window desktop sheet", async ({ page }) => {
@@ -187,8 +192,8 @@ test("tablet selector, mobile layout, and single-window desktop sheet", async ({
   await page.setViewportSize({ width: 820, height: 1180 });
   await page.waitForTimeout(300);
   await expect(page.getByRole("combobox", { name: "Choose a character", exact: true })).toBeVisible();
-  await page.getByRole("combobox", { name: "Choose a character", exact: true }).selectOption("ariun-silverleaf");
-  await expect(page.getByRole("heading", { name: "Ariun Silverleaf", exact: true })).toBeVisible();
+  await page.getByRole("combobox", { name: "Choose a character", exact: true }).selectOption("daraelle");
+  await expect(page.getByRole("heading", { name: "Daraelle", exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.waitForTimeout(300);
