@@ -1,21 +1,39 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowDownToLine, ArrowRight, Bookmark, BookOpen, Check, ChevronDown, Coins, Compass, Copy, Ellipsis, Eye, Feather, Heart, Languages, Loader2, LockKeyhole, MapPin, Maximize2, MessageCircle, Minus, Pencil, Plus, Printer, ScrollText, Shield, Sparkles, Sun, Swords, Target, Trash2, WandSparkles, Wind, X } from "lucide-react";
-import { Character, CharacterNote, abilityNames, formatLegendBadge, getProfileSections, modifier, signed } from "@/lib/characters";
+import { ArrowDownToLine, ArrowRight, Bookmark, BookOpen, Check, ChevronDown, ChevronRight, Coins, Compass, Copy, Ellipsis, Eye, Feather, Heart, Languages, Link2, Loader2, LockKeyhole, MapPin, Maximize2, MessageCircle, Minus, Pencil, Plus, Printer, ScrollText, Shield, Sparkles, Sun, Swords, Tag, Target, Trash2, WandSparkles, Wind, X } from "lucide-react";
+import { Character, CharacterConnection, CharacterNote, Collection, ProfileClusterId, abilityNames, formatLegendBadge, getProfileClusters, modifier, signed } from "@/lib/characters";
 import { lookupSkill, lookupSpell } from "@/lib/compendium";
+import { LinkedText, LocalRelationshipGraph } from "@/components/mention-text";
 
 export type SheetTab = "session" | "profile" | "notes";
 type Props = {
-  character: Character; collectionName: string; tab: SheetTab; onTab: (tab: SheetTab) => void;
-  onUpdate: (updates: Partial<Character>) => Promise<boolean>; onEdit: () => void; onExport: () => void;
-  onDuplicate: () => void; onDelete: () => void; onFocus: () => void; focused: boolean; saving: boolean;
-  inCombat?: boolean; onToggleCombat?: () => void; onOpenCombatMode?: () => void;
+  character: Character;
+  characters: Character[];
+  collections: Collection[];
+  collectionName: string;
+  tab: SheetTab;
+  onTab: (tab: SheetTab) => void;
+  onUpdate: (updates: Partial<Character>) => Promise<boolean>;
+  onEdit: () => void;
+  onExport: () => void;
+  onDuplicate: () => void;
+  onDelete: () => void;
+  onFocus: () => void;
+  focused: boolean;
+  saving: boolean;
+  inCombat?: boolean;
+  onToggleCombat?: () => void;
+  onOpenCombatMode?: () => void;
+  onSelectCharacter?: (id: string) => void;
+  onSelectLocation?: (id: string) => void;
+  onSelectTag?: (tag: string) => void;
 };
 
 export default function CharacterSheet({
-  character: c, collectionName, tab, onTab, onUpdate, onEdit, onExport,
+  character: c, characters, collections, collectionName, tab, onTab, onUpdate, onEdit, onExport,
   onDuplicate, onDelete, onFocus, focused, saving, inCombat, onToggleCombat, onOpenCombatMode,
+  onSelectCharacter, onSelectLocation, onSelectTag,
 }: Props) {
   const [menu, setMenu] = useState(false);
   const [inspectedRef, setInspectedRef] = useState<{ kind: "spell" | "skill"; title: string; subtitle: string; body: string } | null>(null);
@@ -74,7 +92,14 @@ export default function CharacterSheet({
         <div className="character-heading">
           <div className="sheet-eyebrow">
             <span className="tiny-dot" />
-            <span>{collectionName || "UNINDEXED"}</span>
+            <button
+              type="button"
+              className="eyebrow-location-link"
+              onClick={() => c.collectionId && onSelectLocation?.(c.collectionId)}
+              title="Show all characters in this location"
+            >
+              {collectionName || "UNINDEXED"}
+            </button>
             {legend && (
               <span
                 className={`legend-badge ${legend.isLegend ? "is-full-legend" : "is-partial-legend"}`}
@@ -89,9 +114,26 @@ export default function CharacterSheet({
           <p className="character-meta">{c.ancestry}<span>·</span>{c.age} years<span>·</span>{c.pronouns}{c.combatClass && c.combatClass !== "Ordinary civilian" ? <><span>·</span><strong className="meta-class">{c.combatClass}</strong></> : null}</p>
           <div className="character-tags">
             <span>{c.occupation}</span>
-            <span><MapPin size={11} />{c.location}</span>
+            <button
+              type="button"
+              className="tag-location-btn"
+              onClick={() => c.collectionId && onSelectLocation?.(c.collectionId)}
+              title={`Filter library to ${c.location}`}
+            >
+              <MapPin size={11} />{c.location}
+            </button>
             {hasDeity && <span className="deity-tag" title="Primary deity / faith"><Sun size={11} />{c.faith}</span>}
-            {c.distinguishingFeature && <span>{c.distinguishingFeature}</span>}
+            {c.tags?.map(tag => (
+              <button
+                key={tag}
+                type="button"
+                className="character-tag-chip"
+                onClick={() => onSelectTag?.(tag)}
+                title={`Filter library by tag: ${tag}`}
+              >
+                <Tag size={10} />{tag}
+              </button>
+            ))}
           </div>
         </div>
         <div className="character-actions">
@@ -148,16 +190,57 @@ export default function CharacterSheet({
                 <div><dt>A little tell</dt><dd>{c.habit}</dd></div>
                 <div><dt>Primary god</dt><dd className="deity-dd">{c.faith || "No strong affiliation"}</dd></div>
               </dl>
+              {c.backstory && (
+                <div className="session-backstory-callout">
+                  <span>LORE & CONNECTIONS</span>
+                  <p>
+                    <LinkedText
+                      text={c.backstory}
+                      currentCharacterId={c.id}
+                      characters={characters}
+                      collections={collections}
+                      onSelectCharacter={onSelectCharacter}
+                      onSelectLocation={onSelectLocation}
+                    />
+                  </p>
+                </div>
+              )}
             </section>
             <section className="sheet-section wants-section">
               <h3><Target size={14} />Wants & worries</h3>
-              <div className="goal-callout"><span>RIGHT NOW, THEY WANT TO</span><p>{c.goal}</p></div>
+              <div className="goal-callout">
+                <span>RIGHT NOW, THEY WANT TO</span>
+                <p>
+                  <LinkedText
+                    text={c.goal}
+                    currentCharacterId={c.id}
+                    characters={characters}
+                    collections={collections}
+                    onSelectCharacter={onSelectCharacter}
+                    onSelectLocation={onSelectLocation}
+                  />
+                </p>
+              </div>
               <dl className="reference-list">
                 <div><dt>Needs</dt><dd>{c.need}</dd></div>
                 <div><dt>Flaw</dt><dd>{c.flaw}</dd></div>
                 <div><dt>Under pressure</dt><dd>{c.stress}</dd></div>
                 {c.threatResponse && <div><dt>In a fight</dt><dd>{c.threatResponse}</dd></div>}
-                {c.questOffer && <div><dt>Quest hook</dt><dd>{c.questOffer}</dd></div>}
+                {c.questOffer && (
+                  <div>
+                    <dt>Quest hook</dt>
+                    <dd>
+                      <LinkedText
+                        text={c.questOffer}
+                        currentCharacterId={c.id}
+                        characters={characters}
+                        collections={collections}
+                        onSelectCharacter={onSelectCharacter}
+                        onSelectLocation={onSelectLocation}
+                      />
+                    </dd>
+                  </div>
+                )}
               </dl>
             </section>
           </div>
@@ -231,7 +314,16 @@ export default function CharacterSheet({
             </section>
             <section className="sheet-section appearance-section">
               <h3><ScrollText size={14} />Appearance & belongings</h3>
-              <p className="appearance-description">{c.appearance}</p>
+              <p className="appearance-description">
+                <LinkedText
+                  text={c.appearance}
+                  currentCharacterId={c.id}
+                  characters={characters}
+                  collections={collections}
+                  onSelectCharacter={onSelectCharacter}
+                  onSelectLocation={onSelectLocation}
+                />
+              </p>
               <div className="belongings-line"><Coins size={13} /><strong>{c.money}</strong><span className="mini-divider" /><span>{c.equipment}</span></div>
               <div className="language-line">
                 <Languages size={13} /><span>{c.languages}</span>
@@ -245,13 +337,405 @@ export default function CharacterSheet({
         <div className="beneath-surface"><Sparkles size={15} /><span>BENEATH THE SURFACE</span><p>{c.secret}</p></div>
         <footer className="sheet-footer"><span><BookOpen size={13} />A whole person. Just the essentials.</span><div className="sheet-footer-links">{onOpenCombatMode && <button onClick={onOpenCombatMode}><Swords size={12} />Combat stat block</button>}<button onClick={() => onTab("profile")}>View full profile<ArrowRight size={13} /></button></div></footer>
       </>}
-      {tab === "profile" && <div className="full-profile" role="tabpanel"><div className="full-profile-intro"><span className="section-kicker">THE COMPLETE CHARACTER</span><p>{c.tagline}</p>{legend && c.legendDistinction && <p className="legend-profile-note"><strong>{legend.starsText}{legend.isLegend ? " · Legend" : ""}:</strong> {c.legendDistinction}</p>}</div><div className="profile-grid">{getProfileSections(c).map(section => <section className="profile-section" key={section.title}><h3>{section.title}</h3><dl>{section.fields.map(([label, value], i) => <div key={`${label}-${i}`}><dt>{label}</dt><dd>{value}</dd></div>)}</dl></section>)}</div>{c.sourceText && <details className="original-source"><summary>Original imported source</summary><pre>{c.sourceText}</pre></details>}<p className="profile-seed">{c.seed ? `Generation seed: ${c.seed}` : "Made with Fable"}</p></div>}
-      {tab === "notes" && <NotesPanel key={c.id} character={c} onUpdate={onUpdate} saving={saving} />}
+      {tab === "profile" && (
+        <WikiProfileView
+          character={c}
+          characters={characters}
+          collections={collections}
+          onUpdate={onUpdate}
+          onSelectCharacter={onSelectCharacter}
+          onSelectLocation={onSelectLocation}
+          saving={saving}
+        />
+      )}
+      {tab === "notes" && (
+        <NotesPanel
+          key={c.id}
+          character={c}
+          characters={characters}
+          collections={collections}
+          onUpdate={onUpdate}
+          onSelectCharacter={onSelectCharacter}
+          onSelectLocation={onSelectLocation}
+          saving={saving}
+        />
+      )}
     </article>
   );
 }
 
-function NotesPanel({ character, onUpdate, saving }: { character: Character; onUpdate: Props["onUpdate"]; saving: boolean }) {
+function WikiProfileView({
+  character: c,
+  characters,
+  collections,
+  onUpdate,
+  onSelectCharacter,
+  onSelectLocation,
+  saving,
+}: {
+  character: Character;
+  characters: Character[];
+  collections: Collection[];
+  onUpdate: Props["onUpdate"];
+  onSelectCharacter?: (id: string) => void;
+  onSelectLocation?: (id: string) => void;
+  saving: boolean;
+}) {
+  const clusters = getProfileClusters(c);
+  const [activeCluster, setActiveCluster] = useState<ProfileClusterId>("identity");
+  const [openClusters, setOpenClusters] = useState<Record<ProfileClusterId, boolean>>({
+    identity: true,
+    connections: true,
+    life: false,
+    psychology: false,
+    combat: false,
+    possessions: false,
+  });
+
+  // Inline connection editor state
+  const [targetName, setTargetName] = useState("");
+  const [relType, setRelType] = useState("works with");
+  const [relNote, setRelNote] = useState("");
+  const [editingBackstory, setEditingBackstory] = useState(false);
+  const [backstoryDraft, setBackstoryDraft] = useState(c.backstory || "");
+
+  const legend = formatLegendBadge(c.legendStars);
+  const allExpanded = Object.values(openClusters).every(Boolean);
+
+  function jumpToCluster(id: ProfileClusterId) {
+    setActiveCluster(id);
+    setOpenClusters(prev => ({ ...prev, [id]: true }));
+    const el = document.getElementById(`wiki-cluster-${id}`);
+    el?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function toggleAllClusters() {
+    const next = !allExpanded;
+    setOpenClusters({
+      identity: next,
+      connections: next,
+      life: next,
+      psychology: next,
+      combat: next,
+      possessions: next,
+    });
+  }
+
+  async function addConnection(e: React.FormEvent) {
+    e.preventDefault();
+    if (!targetName.trim()) return;
+    const matchedChar = characters.find(ch => ch.name.toLowerCase() === targetName.trim().toLowerCase());
+    const newConn: CharacterConnection = {
+      id: crypto.randomUUID(),
+      targetName: matchedChar ? matchedChar.name : targetName.trim(),
+      targetId: matchedChar?.id,
+      type: relType.trim() || "connected to",
+      note: relNote.trim(),
+    };
+    if (await onUpdate({ connections: [...(c.connections || []), newConn] })) {
+      setTargetName("");
+      setRelNote("");
+    }
+  }
+
+  return (
+    <div className="full-profile wiki-profile-layout" role="tabpanel">
+      {/* Sticky Mini Table of Contents */}
+      <aside className="wiki-toc" aria-label="Profile table of contents">
+        <div className="wiki-toc-header">
+          <span>CONTENTS</span>
+          <button type="button" className="wiki-expand-all-btn" onClick={toggleAllClusters}>
+            {allExpanded ? "Collapse all" : "Expand all"}
+          </button>
+        </div>
+        <nav className="wiki-toc-nav">
+          {clusters.map(cluster => (
+            <button
+              key={cluster.id}
+              type="button"
+              className={`wiki-toc-link ${activeCluster === cluster.id ? "is-active" : ""}`}
+              onClick={() => jumpToCluster(cluster.id)}
+            >
+              <span>{cluster.title}</span>
+              <small>{cluster.id === "connections" ? (c.connections?.length || 0) : cluster.sections.length}</small>
+            </button>
+          ))}
+        </nav>
+        {c.seed && <div className="wiki-toc-seed">Seed {c.seed}</div>}
+      </aside>
+
+      {/* Clustered Wiki Content Pane */}
+      <div className="wiki-clusters-pane">
+        <div className="full-profile-intro">
+          <span className="section-kicker">ENCYCLOPEDIA ENTRY · 6 CLUSTERS</span>
+          <p>
+            <LinkedText
+              text={c.tagline}
+              currentCharacterId={c.id}
+              characters={characters}
+              collections={collections}
+              onSelectCharacter={onSelectCharacter}
+              onSelectLocation={onSelectLocation}
+            />
+          </p>
+          {legend && c.legendDistinction && (
+            <p className="legend-profile-note">
+              <strong>{legend.starsText}{legend.isLegend ? " · Legend" : ""}:</strong> {c.legendDistinction}
+            </p>
+          )}
+        </div>
+
+        {clusters.map(cluster => {
+          const isOpen = openClusters[cluster.id];
+          return (
+            <section
+              key={cluster.id}
+              id={`wiki-cluster-${cluster.id}`}
+              className={`wiki-cluster-card ${isOpen ? "is-open" : "is-collapsed"}`}
+            >
+              <button
+                type="button"
+                className="wiki-cluster-header"
+                aria-expanded={isOpen}
+                onClick={() => {
+                  setActiveCluster(cluster.id);
+                  setOpenClusters(prev => ({ ...prev, [cluster.id]: !isOpen }));
+                }}
+              >
+                <div className="wiki-cluster-title-group">
+                  {isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                  <div>
+                    <h3>{cluster.title}</h3>
+                    <span>{cluster.subtitle}</span>
+                  </div>
+                </div>
+                <span className="wiki-cluster-badge">
+                  {isOpen ? "Hide" : "Show"}
+                </span>
+              </button>
+
+              {isOpen && (
+                <div className="wiki-cluster-body">
+                  {cluster.id === "connections" ? (
+                    <div className="connections-cluster-content">
+                      {/* Backstory & Lore with Clickable Mentions */}
+                      <div className="backstory-wiki-box">
+                        <div className="backstory-wiki-head">
+                          <div>
+                            <h4>Backstory, Lore & Mentions</h4>
+                            <small>Any saved character or location name written here automatically becomes a clickable link.</small>
+                          </div>
+                          {!editingBackstory && (
+                            <button
+                              type="button"
+                              className="button button-small button-white"
+                              onClick={() => {
+                                setBackstoryDraft(c.backstory || "");
+                                setEditingBackstory(true);
+                              }}
+                            >
+                              <Pencil size={12} />Edit lore
+                            </button>
+                          )}
+                        </div>
+                        {editingBackstory ? (
+                          <div className="backstory-editor">
+                            <textarea
+                              aria-label="Edit backstory and lore"
+                              rows={4}
+                              value={backstoryDraft}
+                              onChange={e => setBackstoryDraft(e.target.value)}
+                              placeholder="Write backstory, connections to other NPCs, or locations they frequent…"
+                            />
+                            <div className="backstory-editor-actions">
+                              <button type="button" className="button button-small button-white" onClick={() => setEditingBackstory(false)}>
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                className="button button-small button-primary"
+                                disabled={saving}
+                                onClick={async () => {
+                                  if (await onUpdate({ backstory: backstoryDraft.trim() })) {
+                                    setEditingBackstory(false);
+                                  }
+                                }}
+                              >
+                                <Check size={12} />Save lore
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="backstory-rendered-text">
+                            {c.backstory ? (
+                              <LinkedText
+                                text={c.backstory}
+                                currentCharacterId={c.id}
+                                characters={characters}
+                                collections={collections}
+                                onSelectCharacter={onSelectCharacter}
+                                onSelectLocation={onSelectLocation}
+                              />
+                            ) : (
+                              <span className="muted-placeholder">No backstory written yet. Click “Edit lore” to add notes with automatic character & location links.</span>
+                            )}
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Local Relationship Graph */}
+                      {onSelectCharacter && onSelectLocation && (
+                        <LocalRelationshipGraph
+                          character={c}
+                          characters={characters}
+                          collections={collections}
+                          onSelectCharacter={onSelectCharacter}
+                          onSelectLocation={onSelectLocation}
+                        />
+                      )}
+
+                      {/* Typed Connections List & Quick Add Form */}
+                      <div className="typed-connections-box">
+                        <h4><Link2 size={14} />Typed Connections ({c.connections?.length || 0})</h4>
+                        {c.connections?.length > 0 && (
+                          <div className="connections-list">
+                            {c.connections.map(conn => {
+                              const matchedChar = characters.find(
+                                ch => ch.id === conn.targetId || ch.name.toLowerCase() === conn.targetName.toLowerCase()
+                              );
+                              return (
+                                <div key={conn.id} className="connection-row-card">
+                                  <div className="connection-row-main">
+                                    {matchedChar && onSelectCharacter ? (
+                                      <button
+                                        type="button"
+                                        className="mention-link character-mention"
+                                        onClick={() => onSelectCharacter(matchedChar.id)}
+                                      >
+                                        {matchedChar.name}
+                                      </button>
+                                    ) : (
+                                      <strong>{conn.targetName}</strong>
+                                    )}
+                                    <span className="connection-type-pill">{conn.type}</span>
+                                    {conn.note && (
+                                      <span className="connection-note-text">
+                                        <LinkedText
+                                          text={conn.note}
+                                          currentCharacterId={c.id}
+                                          characters={characters}
+                                          collections={collections}
+                                          onSelectCharacter={onSelectCharacter}
+                                          onSelectLocation={onSelectLocation}
+                                        />
+                                      </span>
+                                    )}
+                                  </div>
+                                  <button
+                                    type="button"
+                                    className="icon-button"
+                                    aria-label={`Remove connection to ${conn.targetName}`}
+                                    onClick={() => void onUpdate({ connections: c.connections.filter(x => x.id !== conn.id) })}
+                                  >
+                                    <Trash2 size={12} />
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        <form className="add-connection-form" onSubmit={e => void addConnection(e)}>
+                          <input
+                            list={`characters-datalist-${c.id}`}
+                            aria-label="Connected character or location"
+                            placeholder="Character or location name…"
+                            value={targetName}
+                            onChange={e => setTargetName(e.target.value)}
+                          />
+                          <datalist id={`characters-datalist-${c.id}`}>
+                            {characters.filter(ch => ch.id !== c.id).map(ch => (
+                              <option key={ch.id} value={ch.name} />
+                            ))}
+                          </datalist>
+                          <input
+                            aria-label="Relationship type"
+                            placeholder="Relationship (e.g. works with, rival of)"
+                            value={relType}
+                            onChange={e => setRelType(e.target.value)}
+                          />
+                          <input
+                            aria-label="Connection note"
+                            placeholder="Optional note…"
+                            value={relNote}
+                            onChange={e => setRelNote(e.target.value)}
+                          />
+                          <button type="submit" className="button button-small button-primary" disabled={!targetName.trim() || saving}>
+                            <Plus size={12} />Add link
+                          </button>
+                        </form>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="profile-grid">
+                      {cluster.sections.map(section => (
+                        <section className="profile-section" key={section.title}>
+                          <h4>{section.title}</h4>
+                          <dl>
+                            {section.fields.map(([label, value], i) => (
+                              <div key={`${label}-${i}`}>
+                                <dt>{label}</dt>
+                                <dd>
+                                  <LinkedText
+                                    text={value}
+                                    currentCharacterId={c.id}
+                                    characters={characters}
+                                    collections={collections}
+                                    onSelectCharacter={onSelectCharacter}
+                                    onSelectLocation={onSelectLocation}
+                                  />
+                                </dd>
+                              </div>
+                            ))}
+                          </dl>
+                        </section>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </section>
+          );
+        })}
+
+        {c.sourceText && (
+          <details className="original-source">
+            <summary>Original imported source</summary>
+            <pre>{c.sourceText}</pre>
+          </details>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function NotesPanel({
+  character,
+  characters,
+  collections,
+  onUpdate,
+  onSelectCharacter,
+  onSelectLocation,
+  saving,
+}: {
+  character: Character;
+  characters: Character[];
+  collections: Collection[];
+  onUpdate: Props["onUpdate"];
+  onSelectCharacter?: (id: string) => void;
+  onSelectLocation?: (id: string) => void;
+  saving: boolean;
+}) {
   const [text, setText] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
@@ -260,5 +744,64 @@ function NotesPanel({ character, onUpdate, saving }: { character: Character; onU
     const note: CharacterNote = { id: crypto.randomUUID(), text: text.trim(), date: new Date().toISOString() };
     if (await onUpdate({ notes: [...character.notes, note] })) setText("");
   }
-  return <div className="notes-panel" role="tabpanel"><div className="notes-heading"><div><h3>The story so far</h3><p>Little moments, loose threads, and things to remember.</p></div><span><LockKeyhole size={11} />GM only</span></div><form className="note-composer" onSubmit={e => { e.preventDefault(); void addNote(); }}><textarea aria-label="New session note" placeholder={`What happened with ${character.name.split(" ")[0]}?`} value={text} onChange={e => setText(e.target.value)} maxLength={20000} rows={3} /><div><span>Saved with this character, ready for next time.</span><button className="button button-primary button-small" disabled={!text.trim() || saving} type="submit">{saving ? <Loader2 size={13} className="spin" /> : <Plus size={13} />}Add note</button></div></form><div className="notes-list">{[...character.notes].reverse().map(note => <article className="note-card" key={note.id}><div className="note-meta"><span><span className="tiny-dot" />{new Date(note.date).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" })}</span><div><button className="icon-button" title="Edit note" aria-label="Edit note" onClick={() => { setEditing(note.id); setEditText(note.text); }}><Pencil size={12} /></button><button className="icon-button" title="Delete note" aria-label="Delete note" disabled={saving} onClick={() => void onUpdate({ notes: character.notes.filter(n => n.id !== note.id) })}><Trash2 size={12} /></button></div></div>{editing === note.id ? <div className="note-edit"><textarea aria-label="Edit session note" value={editText} onChange={e => setEditText(e.target.value)} rows={3} /><div><button className="button button-small button-white" onClick={() => setEditing(null)}>Cancel</button><button className="button button-small button-primary" disabled={!editText.trim() || saving} onClick={async () => { if (await onUpdate({ notes: character.notes.map(n => n.id === note.id ? { ...n, text: editText.trim() } : n) })) setEditing(null); }}><Check size={12} />Save note</button></div></div> : <p>{note.text}</p>}</article>)}{!character.notes.length && <div className="notes-empty"><MessageCircle size={28} /><h4>A fresh page</h4><p>Add their first encounter, a promise made, or a secret revealed.</p></div>}</div></div>;
+  return (
+    <div className="notes-panel" role="tabpanel">
+      <div className="notes-heading">
+        <div>
+          <h3>The story so far</h3>
+          <p>Little moments, loose threads, and things to remember. Mentioning any character or location links it automatically.</p>
+        </div>
+        <span><LockKeyhole size={11} />GM only</span>
+      </div>
+      <form className="note-composer" onSubmit={e => { e.preventDefault(); void addNote(); }}>
+        <textarea aria-label="New session note" placeholder={`What happened with ${character.name.split(" ")[0]}?`} value={text} onChange={e => setText(e.target.value)} maxLength={20000} rows={3} />
+        <div>
+          <span>Saved with this character, ready for next time.</span>
+          <button className="button button-primary button-small" disabled={!text.trim() || saving} type="submit">
+            {saving ? <Loader2 size={13} className="spin" /> : <Plus size={13} />}Add note
+          </button>
+        </div>
+      </form>
+      <div className="notes-list">
+        {[...character.notes].reverse().map(note => (
+          <article className="note-card" key={note.id}>
+            <div className="note-meta">
+              <span><span className="tiny-dot" />{new Date(note.date).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" })}</span>
+              <div>
+                <button className="icon-button" title="Edit note" aria-label="Edit note" onClick={() => { setEditing(note.id); setEditText(note.text); }}><Pencil size={12} /></button>
+                <button className="icon-button" title="Delete note" aria-label="Delete note" disabled={saving} onClick={() => void onUpdate({ notes: character.notes.filter(n => n.id !== note.id) })}><Trash2 size={12} /></button>
+              </div>
+            </div>
+            {editing === note.id ? (
+              <div className="note-edit">
+                <textarea aria-label="Edit session note" value={editText} onChange={e => setEditText(e.target.value)} rows={3} />
+                <div>
+                  <button className="button button-small button-white" onClick={() => setEditing(null)}>Cancel</button>
+                  <button className="button button-small button-primary" disabled={!editText.trim() || saving} onClick={async () => { if (await onUpdate({ notes: character.notes.map(n => n.id === note.id ? { ...n, text: editText.trim() } : n) })) setEditing(null); }}><Check size={12} />Save note</button>
+                </div>
+              </div>
+            ) : (
+              <p>
+                <LinkedText
+                  text={note.text}
+                  currentCharacterId={character.id}
+                  characters={characters}
+                  collections={collections}
+                  onSelectCharacter={onSelectCharacter}
+                  onSelectLocation={onSelectLocation}
+                />
+              </p>
+            )}
+          </article>
+        ))}
+        {!character.notes.length && (
+          <div className="notes-empty">
+            <MessageCircle size={28} />
+            <h4>A fresh page</h4>
+            <p>Add their first encounter, a promise made, or a secret revealed.</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }

@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { ArrowDownToLine, ArrowRight, BookOpen, Building2, Castle, Check, CornerDownRight, Copy, Eye, FileJson, FileText, Globe, ImagePlus, Loader2, LockKeyhole, MapPin, Pencil, Plus, Sparkles, Trash2, Upload, X } from "lucide-react";
-import { Character, Collection, LocationKind, abilityNames, blankCharacter, matchesCollectionFilter } from "@/lib/characters";
+import { ArrowDownToLine, ArrowRight, BookOpen, Building2, Castle, Check, CornerDownRight, Copy, Eye, FileJson, FileText, Globe, ImagePlus, Link2, Loader2, LockKeyhole, MapPin, Pencil, Plus, Sparkles, Trash2, Upload, Users, X } from "lucide-react";
+import { Character, Collection, LocationKind, ParsedGroupImport, abilityNames, blankCharacter, matchesCollectionFilter, tryParseGroupJson } from "@/lib/characters";
 import { downloadFile, filename, toKankaHtml, toMarkdown } from "@/lib/exports";
 
 export function Modal({ title, eyebrow, children, onClose, wide = false }: { title: string; eyebrow?: string; children: React.ReactNode; onClose: () => void; wide?: boolean }) {
@@ -79,7 +79,7 @@ export function buildOrderedLocations(collections: Collection[]): { col: Collect
 }
 
 export function CharacterEditor({ character, collections, onSave, onClose }: { character?: Character; collections: Collection[]; onSave: (c: Character) => Promise<boolean>; onClose: () => void }) {
-  const [form, setForm] = useState<Character>(() => character ? structuredClone(character) : { ...blankCharacter(), collectionId: collections[0]?.id || "" });
+  const [form, setForm] = useState<Character>(() => character ? structuredClone(character) : { ...blankCharacter(), collectionId: "" });
   const [tab, setTab] = useState("basics");
   const [busy, setBusy] = useState(false);
   const portraitFileRef = useRef<HTMLInputElement>(null);
@@ -90,7 +90,7 @@ export function CharacterEditor({ character, collections, onSave, onClose }: { c
 
   const orderedCollections = buildOrderedLocations(collections);
 
-  return <Modal title={character ? `Edit ${character.name.split(" ")[0]}` : "A new face in your world"} eyebrow={character ? "CHARACTER EDITOR" : "CREATE A CHARACTER"} onClose={onClose} wide><form onSubmit={async e => { e.preventDefault(); setBusy(true); const hp = !character || character.hp === character.maxHp ? form.maxHp : Math.min(form.hp, form.maxHp); try { await onSave({ ...form, hp }); } finally { setBusy(false); } }}><div className="editor-tabs" role="tablist"><button type="button" className={tab === "basics" ? "active" : ""} onClick={() => setTab("basics")} role="tab" aria-selected={tab === "basics"}>The basics</button><button type="button" className={tab === "roleplay" ? "active" : ""} onClick={() => setTab("roleplay")} role="tab" aria-selected={tab === "roleplay"}>At the table</button><button type="button" className={tab === "combat" ? "active" : ""} onClick={() => setTab("combat")} role="tab" aria-selected={tab === "combat"}>Combat & spells</button></div><div className="modal-body editor-body">
+  return <Modal title={character ? `Edit ${character.name.split(" ")[0]}` : "A new face in your world"} eyebrow={character ? "CHARACTER EDITOR" : "CREATE A CHARACTER"} onClose={onClose} wide><form onSubmit={async e => { e.preventDefault(); setBusy(true); const hp = !character || character.hp === character.maxHp ? form.maxHp : Math.min(form.hp, form.maxHp); try { await onSave({ ...form, hp }); } finally { setBusy(false); } }}><div className="editor-tabs" role="tablist"><button type="button" className={tab === "basics" ? "active" : ""} onClick={() => setTab("basics")} role="tab" aria-selected={tab === "basics"}>The basics</button><button type="button" className={tab === "roleplay" ? "active" : ""} onClick={() => setTab("roleplay")} role="tab" aria-selected={tab === "roleplay"}>At the table & lore</button><button type="button" className={tab === "combat" ? "active" : ""} onClick={() => setTab("combat")} role="tab" aria-selected={tab === "combat"}>Combat & spells</button></div><div className="modal-body editor-body">
     {tab === "basics" && <>
       <div className="custom-portrait-box">
         <div className="custom-portrait-preview">
@@ -141,11 +141,19 @@ export function CharacterEditor({ character, collections, onSave, onClose }: { c
         {field("Ancestry", "ancestry", "e.g. Ghostwise Halfling, Sea Elf")}
         <div className="form-row">{field("Age", "age", "41")}{field("Pronouns", "pronouns", "she/her")}</div>
         {field("Occupation", "occupation")}
-        {field("Current residence", "location")}
         <label className="form-field">
-          <span>Region / City / Sublocation</span>
+          <span>Current residence <small>(type `Region &gt; City &gt; Place` to auto-create)</small></span>
+          <input
+            aria-label="Current residence"
+            value={form.location}
+            onChange={e => update("location", e.target.value)}
+            placeholder="e.g. Durudha > Crossroads > Roadside Inn"
+          />
+        </label>
+        <label className="form-field">
+          <span>Region / City / Sublocation folder</span>
           <select value={form.collectionId} onChange={e => update("collectionId", e.target.value)}>
-            <option value="">Unindexed</option>
+            <option value="">Auto-match / create from Current residence</option>
             {orderedCollections.map(({ col, depth }) => (
               <option value={col.id} key={col.id}>
                 {depth === 0 ? col.name : depth === 1 ? `↳ ${col.name} (City)` : `    ↳ ${col.name} (Place)`}
@@ -169,6 +177,15 @@ export function CharacterEditor({ character, collections, onSave, onClose }: { c
           </select>
         </label>
         {form.legendStars > 0 && field("Legendary distinction summary", "legendDistinction", "Why their mastery, impact, or power stands apart", true)}
+        <label className="form-field field-wide">
+          <span>Tags <small>comma-separated (organizations, backgrounds, factions)</small></span>
+          <input
+            aria-label="Character tags"
+            value={(form.tags || []).join(", ")}
+            onChange={e => update("tags", e.target.value.split(",").map(v => v.trimStart()))}
+            placeholder="Outlander, Merchant Guild, Spellcaster, Roadside Inn"
+          />
+        </label>
         {field("Primary god / deity", "faith", "e.g. Naskyros — The Sunken King")}
         {field("Background", "background")}
         {field("In one sentence", "tagline", "The thing that makes them memorable", true)}
@@ -178,7 +195,7 @@ export function CharacterEditor({ character, collections, onSave, onClose }: { c
         {field("Languages", "languages")}
       </div>
     </>}
-    {tab === "roleplay" && <div className="form-grid"><label className="form-field field-wide"><span>Personality traits <small>separate with commas</small></span><input value={form.traits.join(", ")} onChange={e => update("traits", e.target.value.split(",").map(v => v.trimStart()))} placeholder="Aloof, emotionally private, frank" /></label>{field("First impression", "impression")}{field("Voice", "voice")}{field("A little tell or habit", "habit", "Taps a rhythm with their fingers", true)}{area("Current goal", "goal")}{area("Why it matters", "motivation")}{field("What they need", "need")}{field("Main flaw", "flaw")}{area("Under pressure", "stress")}{area("Under physical threat (in a fight)", "threatResponse", "How they react when combat breaks out")}{area("Quest they can offer", "questOffer", "Quest hook, objective, and reward")}{area("Beneath the surface (GM secret)", "secret")}<label className="form-field field-wide"><span>Values <small>separate with commas</small></span><input value={form.values.join(", ")} onChange={e => update("values", e.target.value.split(",").map(v => v.trimStart()))} /></label></div>}
+    {tab === "roleplay" && <div className="form-grid"><label className="form-field field-wide"><span>Personality traits <small>separate with commas</small></span><input value={form.traits.join(", ")} onChange={e => update("traits", e.target.value.split(",").map(v => v.trimStart()))} placeholder="Aloof, emotionally private, frank" /></label>{field("First impression", "impression")}{field("Voice", "voice")}{field("A little tell or habit", "habit", "Taps a rhythm with their fingers", true)}{area("Backstory, connections & lore (auto-links character & location names)", "backstory", "Mention any saved character or location name here to turn it into a clickable jump link.")}{area("Current goal", "goal")}{area("Why it matters", "motivation")}{field("What they need", "need")}{field("Main flaw", "flaw")}{area("Under pressure", "stress")}{area("Under physical threat (in a fight)", "threatResponse", "How they react when combat breaks out")}{area("Quest they can offer", "questOffer", "Quest hook, objective, and reward")}{area("Beneath the surface (GM secret)", "secret")}<label className="form-field field-wide"><span>Values <small>separate with commas</small></span><input value={form.values.join(", ")} onChange={e => update("values", e.target.value.split(",").map(v => v.trimStart()))} /></label></div>}
     {tab === "combat" && <>
       <div className="form-grid combat-form-grid">
         {numeric("Armour class", "ac")}
@@ -214,12 +231,220 @@ export function CharacterEditor({ character, collections, onSave, onClose }: { c
   </div><footer className="modal-footer"><span className="subtle-text"><LockKeyhole size={12} />Saved to your workspace</span><div><button type="button" className="button button-white" onClick={onClose}>Cancel</button><button type="submit" className="button button-primary" disabled={busy}>{busy ? <Loader2 size={14} className="spin" /> : <Check size={14} />}{busy ? "Saving…" : character ? "Save changes" : "Create character"}</button></div></footer></form></Modal>;
 }
 
-export function ImportDialog({ onImport, onClose }: { onImport: (text: string) => Promise<boolean>; onClose: () => void }) {
+export function ImportDialog({
+  onImport,
+  onImportGroup,
+  onClose,
+}: {
+  onImport: (text: string) => Promise<boolean>;
+  onImportGroup?: (group: ParsedGroupImport, selectedIndices: number[], customLocationPath: string) => Promise<boolean>;
+  onClose: () => void;
+}) {
   const [text, setText] = useState("");
+  const [stagedGroup, setStagedGroup] = useState<ParsedGroupImport | null>(null);
+  const [selectedIndices, setSelectedIndices] = useState<number[]>([]);
+  const [locationPath, setLocationPath] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const file = useRef<HTMLInputElement>(null);
-  return <Modal title="Bring a character along" eyebrow="IMPORT CHARACTER" onClose={onClose}><div className="modal-body"><p className="modal-description">Paste a generated NPC or a plain-text profile. We’ll pull out the essentials (including Legend stars, spells, spell slots, and combat tactics) and keep the original, too.</p><label className="form-field"><span>Character text</span><textarea className="import-textarea" rows={11} value={text} onChange={e => { setText(e.target.value); setError(""); }} placeholder={'Daraelle\nGhostwise Halfling, 41 years (adult), she/her, Small, speed 25 ft\n\nAt a glance\n  First impression: Cool and collected\n  Voice: wry and observant\n\nLegend profile\n  Legend status: Legend-qualified · 5/5 stars'} maxLength={500000} autoFocus /></label><div className="import-file-row"><input type="file" accept=".txt,.md,.json,text/plain,application/json" ref={file} hidden onChange={async e => { const selected = e.target.files?.[0]; if (!selected) return; if (selected.size > 2000000) { setError("Please choose a file smaller than 2 MB."); return; } setText(await selected.text()); setError(""); }} /><button className="button button-white button-small" onClick={() => file.current?.click()}><Upload size={13} />Choose a file</button><span>.txt, .md, or Fable .json backup</span></div>{error && <p className="inline-error">{error}</p>}<div className="help-callout"><Sparkles size={16} /><p>Long profile? Perfect. All the detail stays in the full profile; roleplay cues, Legend distinction, and combat stat blocks come to the table.</p></div></div><footer className="modal-footer"><span className="subtle-text">Your original text is preserved.</span><div><button className="button button-white" onClick={onClose}>Cancel</button><button className="button button-primary" disabled={!text.trim() || busy} onClick={async () => { setBusy(true); try { const ok = await onImport(text); if (!ok) setError("We couldn’t read that profile. Check the text or JSON and try again."); } catch (e) { setError(e instanceof Error ? e.message : "Could not import this profile."); } finally { setBusy(false); } }}>{busy ? <Loader2 size={14} className="spin" /> : <ArrowRight size={14} />}{busy ? "Importing…" : "Import character"}</button></div></footer></Modal>;
+
+  function handleInspectOrImport() {
+    const group = tryParseGroupJson(text);
+    if (group && onImportGroup) {
+      setStagedGroup(group);
+      setSelectedIndices(group.members.map(m => m.index));
+      setLocationPath(group.regionHint ? `${group.regionHint} > ${group.name}` : group.name);
+      setError("");
+      return;
+    }
+    void runStandardImport();
+  }
+
+  async function runStandardImport() {
+    setBusy(true);
+    try {
+      const ok = await onImport(text);
+      if (!ok) setError("We couldn’t read that profile. Check the text or JSON and try again.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not import this profile.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmGroupImport() {
+    if (!stagedGroup || !onImportGroup || !selectedIndices.length) return;
+    setBusy(true);
+    try {
+      const ok = await onImportGroup(stagedGroup, selectedIndices, locationPath.trim() || stagedGroup.name);
+      if (!ok) setError("Could not import the selected group members.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not import group.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function toggleMemberIndex(idx: number) {
+    setSelectedIndices(prev => prev.includes(idx) ? prev.filter(i => i !== idx) : [...prev, idx]);
+  }
+
+  return (
+    <Modal
+      title={stagedGroup ? `Group import: ${stagedGroup.name}` : "Bring a character or group along"}
+      eyebrow={stagedGroup ? "SELECTIVE GROUP & SETTLEMENT IMPORT" : "IMPORT CHARACTER OR GROUP"}
+      onClose={onClose}
+      wide={Boolean(stagedGroup)}
+    >
+      {stagedGroup ? (
+        <>
+          <div className="modal-body">
+            <div className="group-staging-banner">
+              <div>
+                <strong>{stagedGroup.name}</strong>
+                <p>{stagedGroup.setting || `Template: ${stagedGroup.template}`}</p>
+              </div>
+              <span className="group-staging-badge">
+                <Users size={13} />
+                {selectedIndices.length} of {stagedGroup.members.length} selected
+              </span>
+            </div>
+
+            <div className="form-grid" style={{ marginTop: 12, marginBottom: 14 }}>
+              <label className="form-field field-wide">
+                <span>Location / Sublocation folder to place imported NPCs <small>(auto-creates nested folders with `&gt;`)</small></span>
+                <input
+                  aria-label="Group destination location path"
+                  value={locationPath}
+                  onChange={e => setLocationPath(e.target.value)}
+                  placeholder="e.g. Durudha > Roadside inn"
+                />
+              </label>
+            </div>
+
+            <div className="group-member-controls">
+              <span>Uncheck any individual NPCs you do not want to bring over:</span>
+              <div>
+                <button type="button" className="button button-small button-white" onClick={() => setSelectedIndices(stagedGroup.members.map(m => m.index))}>
+                  Select all ({stagedGroup.members.length})
+                </button>
+                <button type="button" className="button button-small button-white" onClick={() => setSelectedIndices([])}>
+                  Deselect all
+                </button>
+              </div>
+            </div>
+
+            <div className="group-members-checklist" role="group" aria-label="Group members to import">
+              {stagedGroup.members.map(m => {
+                const checked = selectedIndices.includes(m.index);
+                return (
+                  <label key={m.index} className={`group-member-row ${checked ? "is-checked" : "is-excluded"}`}>
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleMemberIndex(m.index)}
+                    />
+                    <div className="group-member-details">
+                      <div className="group-member-top">
+                        <strong>{m.character.name}</strong>
+                        <span className="group-member-role">{m.character.occupation}</span>
+                        <span className="group-member-meta">{m.character.ancestry} · {m.character.pronouns}</span>
+                      </div>
+                      {m.connectionLabels.length > 0 && (
+                        <div className="group-member-conns">
+                          <Link2 size={11} />
+                          <span>{m.connectionLabels.join(" · ")}</span>
+                        </div>
+                      )}
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+            {error && <p className="inline-error">{error}</p>}
+          </div>
+          <footer className="modal-footer">
+            <button type="button" className="button button-white" onClick={() => setStagedGroup(null)}>
+              Back to raw text
+            </button>
+            <div>
+              <button type="button" className="button button-white" onClick={onClose}>Cancel</button>
+              <button
+                type="button"
+                className="button button-primary"
+                disabled={!selectedIndices.length || busy}
+                onClick={() => void confirmGroupImport()}
+              >
+                {busy ? <Loader2 size={14} className="spin" /> : <Check size={14} />}
+                Import {selectedIndices.length} {selectedIndices.length === 1 ? "character" : "characters"}
+              </button>
+            </div>
+          </footer>
+        </>
+      ) : (
+        <>
+          <div className="modal-body">
+            <p className="modal-description">
+              Paste a generated NPC sheet, a Group / Settlement JSON (like a roadside inn or bandit group), or a backup. New locations are created automatically, and groups let you choose which NPCs to bring over.
+            </p>
+            <label className="form-field">
+              <span>Character text or Group JSON</span>
+              <textarea
+                className="import-textarea"
+                rows={11}
+                value={text}
+                onChange={e => { setText(e.target.value); setError(""); }}
+                placeholder={'Daraelle\nGhostwise Halfling, 41 years (adult), she/her, Small, speed 25 ft\n\n— OR paste a Group JSON ("name": "Roadside inn", "members": [...]) —'}
+                maxLength={500000}
+                autoFocus
+              />
+            </label>
+            <div className="import-file-row">
+              <input
+                type="file"
+                accept=".txt,.md,.json,text/plain,application/json"
+                ref={file}
+                hidden
+                onChange={async e => {
+                  const selected = e.target.files?.[0];
+                  if (!selected) return;
+                  if (selected.size > 2000000) {
+                    setError("Please choose a file smaller than 2 MB.");
+                    return;
+                  }
+                  setText(await selected.text());
+                  setError("");
+                }}
+              />
+              <button className="button button-white button-small" onClick={() => file.current?.click()}>
+                <Upload size={13} />Choose a file
+              </button>
+              <span>.txt, .md, Group .json, or Fable backup</span>
+            </div>
+            {error && <p className="inline-error">{error}</p>}
+            <div className="help-callout">
+              <Sparkles size={16} />
+              <p>Importing a tavern, merchant square, or bandit group JSON? You’ll get a checklist to uncheck any NPCs you don’t need, and their connections will wire up automatically.</p>
+            </div>
+          </div>
+          <footer className="modal-footer">
+            <span className="subtle-text">Your original text is preserved.</span>
+            <div>
+              <button className="button button-white" onClick={onClose}>Cancel</button>
+              <button
+                className="button button-primary"
+                disabled={!text.trim() || busy}
+                onClick={handleInspectOrImport}
+              >
+                {busy ? <Loader2 size={14} className="spin" /> : <ArrowRight size={14} />}
+                {busy ? "Importing…" : "Continue"}
+              </button>
+            </div>
+          </footer>
+        </>
+      )}
+    </Modal>
+  );
 }
 
 export function ExportDialog({ character: c, onClose }: { character: Character; onClose: () => void }) {
